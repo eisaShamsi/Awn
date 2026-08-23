@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "awn-agent"
+version = "0.1.0.dev0"
+description = "Arabic-first personal AI agent with permission-aware execution"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Eisa Shamsi" },
+]
+dependencies = [
+    "alembic>=1.16,<2",
+    "fastapi==0.141.1",
+    "openai==3.3.1",
+    "psycopg[binary]>=3.2,<4",
+    "pydantic-settings==2.15.0",
+    "sqlalchemy>=2.0,<3",
+    "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest==9.1.1",
+    "ruff==0.16.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/awn"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
