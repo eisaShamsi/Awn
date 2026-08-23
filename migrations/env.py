@@ -6,6 +6,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from awn.config import get_settings
 from awn.infrastructure.database import Base
 from awn.infrastructure.persistence import models  # noqa: F401
 
@@ -21,7 +22,10 @@ def get_database_url() -> str:
     override = config.attributes.get("database_url")
     if isinstance(override, str):
         return override
-    return os.getenv("AWN_DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    environment_url = os.getenv("AWN_DATABASE_URL")
+    if environment_url:
+        return environment_url
+    return get_settings().database_url.get_secret_value()
 
 
 def run_migrations_offline() -> None:

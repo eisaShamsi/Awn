@@ -1,6 +1,6 @@
 """SQLAlchemy engine, sessions, and schema lifecycle helpers."""
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -23,6 +23,12 @@ class Database:
                 engine_options["poolclass"] = StaticPool
 
         self.engine: Engine = create_engine(url, **engine_options)
+        if url.startswith("sqlite"):
+            event.listen(
+                self.engine,
+                "connect",
+                lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"),
+            )
         self.session_factory = sessionmaker(
             bind=self.engine,
             class_=Session,

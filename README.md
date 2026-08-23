@@ -76,18 +76,35 @@
 
 تحتاج إلى Python `3.12+` وPostgreSQL. بوابة النماذج الوهمية هي الافتراضية، ولذلك لا يلزم مفتاح API لتشغيل الاختبارات أو تجربة API الحالية.
 
+### PostgreSQL مثبت على Windows — المسار الموصى به حاليًا
+
 ```powershell
 cd E:\OpenAI_Codex\Awn
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-docker compose up -d database
+
+# عند عدم تثبيت PostgreSQL 18 بعد:
+winget install --id PostgreSQL.PostgreSQL.18 --exact --interactive
+
+# يفتح نافذة مسؤول ويطلب كلمة postgres محليًا دون عرضها.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\configure_postgres.ps1
+
 alembic upgrade head
 pytest
 uvicorn apps.api.main:app --reload
 ```
 
-يمكنك استخدام PostgreSQL مثبت مسبقًا بدل Docker؛ اضبط `AWN_DATABASE_URL` في `.env` ثم شغّل `alembic upgrade head`. تستخدم الاختبارات السريعة SQLite معزولة، بينما يشغّل CI اختبار تكامل حقيقيًا على PostgreSQL.
+تنشئ أداة الإعداد قاعدة `awn` وحساب `awn_app` محدود الصلاحيات بكلمة عشوائية، وتقصر PostgreSQL على `localhost` مع `SCRAM-SHA-256`، ثم تكتب ملف `.env` محليًا بصلاحيات Windows مقيدة وتطبق الترحيلات. لا تضف ملف `.env` إلى Git.
+
+### Docker — البديل عند الحاجة إلى بيئة حاويات
+
+```powershell
+docker compose up -d database
+alembic upgrade head
+```
+
+يتطلب هذا البديل Docker Desktop وWSL 2 على Windows. تستخدم الاختبارات السريعة SQLite معزولة، بينما يشغّل CI واختبار التكامل المحلي قاعدة PostgreSQL حقيقية عند ضبط `AWN_TEST_POSTGRES_URL`.
 
 بعد التشغيل:
 

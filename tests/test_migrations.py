@@ -14,9 +14,21 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
 
     engine = create_engine(database_url)
     inspector = inspect(engine)
-    assert {"alembic_version", "tasks"}.issubset(inspector.get_table_names())
+    assert {
+        "alembic_version",
+        "conversations",
+        "messages",
+        "plan_steps",
+        "runs",
+        "tasks",
+        "users",
+        "workspaces",
+    }.issubset(inspector.get_table_names())
     assert {"ix_tasks_status", "ix_tasks_due_at"} == {
         index["name"] for index in inspector.get_indexes("tasks")
+    }
+    assert {"ix_runs_workspace_status", "ix_runs_conversation_created"} == {
+        index["name"] for index in inspector.get_indexes("runs")
     }
 
     command.downgrade(config, "base")
