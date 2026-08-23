@@ -22,10 +22,11 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
         "plan_steps",
         "runs",
         "tasks",
+        "tool_calls",
         "users",
         "workspaces",
     }.issubset(inspector.get_table_names())
-    assert {"ix_tasks_status", "ix_tasks_due_at"} == {
+    assert {"ix_tasks_status", "ix_tasks_due_at", "ix_tasks_workspace_status"} == {
         index["name"] for index in inspector.get_indexes("tasks")
     }
     assert {"ix_runs_workspace_status", "ix_runs_conversation_created"} == {

@@ -125,6 +125,9 @@ def action_fingerprint(
                 "title": step.title,
                 "risk": step.risk.value,
                 "requires_approval": step.requires_approval,
+                "tool_name": step.tool_name,
+                "operation": step.operation,
+                "tool_input": step.tool_input,
             }
             for step in ordered_steps
         ],

@@ -207,9 +207,13 @@ class SqlAlchemyApprovalRepository:
                     if command.decision is ApprovalDecision.APPROVE
                     else ApprovalStatus.REJECTED
                 )
+                repeated_approval = (
+                    status in {ApprovalStatus.APPROVED, ApprovalStatus.CONSUMED}
+                    and command.decision is ApprovalDecision.APPROVE
+                )
                 outcome = (
                     ApprovalDecisionOutcome.ALREADY_RESOLVED
-                    if status is repeated_status
+                    if (status is repeated_status or repeated_approval)
                     and command.action_fingerprint == record.action_fingerprint
                     else ApprovalDecisionOutcome.CONFLICT
                 )

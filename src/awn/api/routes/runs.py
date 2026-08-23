@@ -4,8 +4,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
-from awn.api.dependencies import OrchestratorServiceDependency, RunServiceDependency
+from awn.api.dependencies import (
+    ExecutionServiceDependency,
+    OrchestratorServiceDependency,
+    RunServiceDependency,
+)
 from awn.domain.runs import PlanStep, Run, RunCreate
+from awn.domain.tool_calls import ToolCall
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/conversations/{conversation_id}/runs",
@@ -76,3 +81,16 @@ def list_run_steps(
     if steps is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return steps
+
+
+@router.get("/{run_id}/tool-calls", response_model=list[ToolCall])
+def list_tool_calls(
+    workspace_id: UUID,
+    conversation_id: UUID,
+    run_id: UUID,
+    service: ExecutionServiceDependency,
+) -> list[ToolCall]:
+    calls = service.list(workspace_id, conversation_id, run_id)
+    if calls is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return calls

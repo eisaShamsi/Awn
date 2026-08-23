@@ -23,6 +23,7 @@ class PolicyOutcome(StrEnum):
     ALLOW = "allow"
     REQUIRE_APPROVAL = "require_approval"
     DENY = "deny"
+    REQUIRE_CLARIFICATION = "require_clarification"
 
 
 class ActionRequest(BaseModel):
@@ -31,6 +32,7 @@ class ActionRequest(BaseModel):
     side_effect: bool = False
     external: bool = False
     delegation_matches: bool = False
+    context_complete: bool = True
 
 
 class PolicyDecision(BaseModel):
@@ -48,6 +50,12 @@ class PolicyEngine:
         autonomy: AutonomyLevel,
         has_matching_approval: bool = False,
     ) -> PolicyDecision:
+        if not action.context_complete:
+            return PolicyDecision(
+                outcome=PolicyOutcome.REQUIRE_CLARIFICATION,
+                reason="The action is missing context required for a safe decision.",
+            )
+
         if action.risk is RiskLevel.PROHIBITED:
             return PolicyDecision(
                 outcome=PolicyOutcome.DENY,

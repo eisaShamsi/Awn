@@ -13,6 +13,17 @@ from awn.policy.engine import (
     ("action", "autonomy", "approved", "expected"),
     [
         (
+            ActionRequest(
+                operation="tasks.create",
+                risk=RiskLevel.LOW,
+                side_effect=True,
+                context_complete=False,
+            ),
+            AutonomyLevel.APPROVAL_REQUIRED,
+            False,
+            PolicyOutcome.REQUIRE_CLARIFICATION,
+        ),
+        (
             ActionRequest(operation="github.read_issue", risk=RiskLevel.LOW, external=True),
             AutonomyLevel.ADVISORY,
             False,

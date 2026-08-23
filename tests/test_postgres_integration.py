@@ -4,11 +4,12 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 
 from awn.api.app import create_app
 from awn.application.tasks import TaskService
 from awn.config import Settings
+from awn.domain.identity import SetupState, User, Workspace, WorkspaceStatus
 from awn.domain.tasks import TaskCreate, TaskPriority, TaskStatus, TaskUpdate
 from awn.infrastructure.database import Database
 from awn.infrastructure.persistence.models import (
@@ -16,7 +17,6 @@ from awn.infrastructure.persistence.models import (
     MessageRecord,
     PlanStepRecord,
     RunRecord,
-    TaskRecord,
     UserRecord,
     WorkspaceRecord,
 )
@@ -25,31 +25,91 @@ from awn.infrastructure.persistence.tasks import SqlAlchemyTaskRepository
 POSTGRES_URL = os.getenv("AWN_TEST_POSTGRES_URL")
 
 
+class _StaticIdentityRepository:
+    def __init__(self, state: SetupState) -> None:
+        self._state = state
+
+    def current(self) -> SetupState:
+        return self._state
+
+
 @pytest.mark.skipif(not POSTGRES_URL, reason="AWN_TEST_POSTGRES_URL is not configured")
 def test_repository_round_trip_on_postgresql() -> None:
     assert POSTGRES_URL is not None
     database = Database(POSTGRES_URL)
-    created_id: UUID | None = None
+    user_id = uuid4()
+    workspace_id = uuid4()
+    now = datetime.now(UTC)
 
     try:
         assert database.dialect_name == "postgresql"
-        service = TaskService(SqlAlchemyTaskRepository(database.session_factory))
-        created = service.create(
-            TaskCreate(title="PostgreSQL integration", priority=TaskPriority.HIGH)
+        with database.session_factory.begin() as session:
+            session.add_all(
+                [
+                    UserRecord(
+                        id=user_id,
+                        display_name="PostgreSQL task user",
+                        locale="ar",
+                        timezone="Asia/Dubai",
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    WorkspaceRecord(
+                        id=workspace_id,
+                        owner_id=user_id,
+                        name="PostgreSQL task workspace",
+                        status="active",
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                ]
+            )
+        identity_repository = _StaticIdentityRepository(
+            SetupState(
+                user=User(
+                    id=user_id,
+                    display_name="PostgreSQL task user",
+                    locale="ar",
+                    timezone="Asia/Dubai",
+                    created_at=now,
+                    updated_at=now,
+                ),
+                workspace=Workspace(
+                    id=workspace_id,
+                    owner_id=user_id,
+                    name="PostgreSQL task workspace",
+                    status=WorkspaceStatus.ACTIVE,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                created=True,
+            )
         )
-        created_id = created.id
+        service = TaskService(
+            SqlAlchemyTaskRepository(database.session_factory),
+            identity_repository,
+        )
+        created = service.create(
+            workspace_id, TaskCreate(title="PostgreSQL integration", priority=TaskPriority.HIGH)
+        )
+        assert created is not None
 
-        restored = service.get(created.id)
+        restored = service.get(workspace_id, created.id)
         assert restored is not None
         assert restored.title == "PostgreSQL integration"
 
-        updated = service.update(created.id, TaskUpdate(status=TaskStatus.COMPLETED))
+        updated = service.update(
+            workspace_id,
+            created.id,
+            TaskUpdate(status=TaskStatus.COMPLETED),
+        )
         assert updated is not None
         assert updated.status is TaskStatus.COMPLETED
     finally:
-        if created_id is not None:
-            with database.session_factory.begin() as session:
-                session.execute(delete(TaskRecord).where(TaskRecord.id == created_id))
+        with database.session_factory.begin() as session:
+            owner = session.get(UserRecord, user_id)
+            if owner is not None:
+                session.delete(owner)
         database.dispose()
 
 
@@ -184,7 +244,7 @@ def test_core_api_flow_on_postgresql() -> None:
 
             message_response = client.post(
                 f"/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages",
-                json={"parts": [{"type": "text", "text": "نفذ"}]},
+                json={"parts": [{"type": "text", "text": "أنشئ مهمة لاختبار PostgreSQL"}]},
             )
             assert message_response.status_code == 201
             message_id = message_response.json()["id"]
@@ -195,6 +255,25 @@ def test_core_api_flow_on_postgresql() -> None:
             )
             assert run_response.status_code == 201
             assert run_response.json()["status"] == "received"
+            run_id = run_response.json()["id"]
+            run_path = (
+                f"/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/runs/{run_id}"
+            )
+            assert client.get(run_path).json()["status"] == "awaiting_approval"
+            approval = client.get(f"{run_path}/approvals").json()[0]
+            approved = client.post(
+                f"{run_path}/approvals/{approval['id']}/decision",
+                json={
+                    "decision": "approve",
+                    "action_fingerprint": approval["action_fingerprint"],
+                },
+            )
+            assert approved.status_code == 200
+            assert client.get(run_path).json()["status"] == "succeeded"
+            assert client.get(f"{run_path}/approvals").json()[0]["status"] == "consumed"
+            assert client.get(f"{run_path}/tool-calls").json()[0]["status"] == "succeeded"
+            tasks = client.get(f"/api/v1/workspaces/{workspace_id}/tasks").json()
+            assert [task["title"] for task in tasks] == ["لاختبار PostgreSQL"]
             assert client.get("/ready").json() == {
                 "status": "ready",
                 "database": "postgresql",

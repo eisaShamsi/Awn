@@ -14,12 +14,21 @@ class OrchestrationKind(StrEnum):
     CLARIFICATION = "clarification"
 
 
+class ProposedToolAction(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_name: str = Field(min_length=1, max_length=100)
+    operation: str = Field(min_length=1, max_length=100)
+    arguments: dict[str, object]
+
+
 class ProposedPlanStep(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     title: str = Field(min_length=1, max_length=300)
     risk: RunRisk = RunRisk.LOW
     requires_approval: bool = False
+    action: ProposedToolAction | None = None
 
     @field_validator("title")
     @classmethod

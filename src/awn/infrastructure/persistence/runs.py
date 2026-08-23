@@ -58,6 +58,9 @@ def _step(record: PlanStepRecord) -> PlanStep:
         status=PlanStepStatus(record.status),
         risk=RunRisk(record.risk),
         requires_approval=record.requires_approval,
+        tool_name=record.tool_name,
+        operation=record.operation,
+        tool_input=record.tool_input,
         created_at=created_at,
         updated_at=updated_at,
     )
@@ -222,6 +225,9 @@ class SqlAlchemyRunRepository:
                         status=step.status.value,
                         risk=step.risk.value,
                         requires_approval=step.requires_approval,
+                        tool_name=step.tool_name,
+                        operation=step.operation,
+                        tool_input=step.tool_input,
                         created_at=step.created_at,
                         updated_at=step.updated_at,
                     )

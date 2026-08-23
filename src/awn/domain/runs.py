@@ -156,6 +156,9 @@ class PlanStep(BaseModel):
     status: PlanStepStatus = PlanStepStatus.PENDING
     risk: RunRisk = RunRisk.LOW
     requires_approval: bool = False
+    tool_name: str | None = Field(default=None, min_length=1, max_length=100)
+    operation: str | None = Field(default=None, min_length=1, max_length=100)
+    tool_input: dict[str, object] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -168,3 +171,12 @@ class PlanStep(BaseModel):
         return title
 
     _validate_timestamps = field_validator("created_at", "updated_at")(_require_aware)
+
+    @model_validator(mode="after")
+    def tool_action_is_complete(self) -> Self:
+        action_fields = (self.tool_name, self.operation, self.tool_input)
+        if any(value is not None for value in action_fields) and not all(
+            value is not None for value in action_fields
+        ):
+            raise ValueError("tool_name, operation, and tool_input must be set together")
+        return self

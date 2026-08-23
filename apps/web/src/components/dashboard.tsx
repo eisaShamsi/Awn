@@ -11,6 +11,8 @@ import type {
   Run,
   RunStatus,
   SetupState,
+  Task,
+  ToolCall,
   Workspace,
 } from "@/lib/types";
 
@@ -85,6 +87,9 @@ export function Dashboard() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [autonomyLevel, setAutonomyLevel] = useState<0 | 2>(0);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -95,32 +100,39 @@ export function Dashboard() {
       setRuns([]);
       setPlanSteps([]);
       setApprovals([]);
+      setToolCalls([]);
       return;
     }
     const base = `workspaces/${nextWorkspaceId}/conversations/${nextConversationId}`;
-    const [nextMessages, nextRuns] = await Promise.all([
+    const [nextMessages, nextRuns, nextTasks] = await Promise.all([
       apiRequest<Message[]>(`${base}/messages`),
       apiRequest<Run[]>(`${base}/runs`),
+      apiRequest<Task[]>(`workspaces/${nextWorkspaceId}/tasks`),
     ]);
     setMessages(nextMessages);
     setRuns(nextRuns);
+    setTasks(nextTasks);
     const latestRun = nextRuns[0];
-    const [nextPlanSteps, nextApprovals] = latestRun
+    const [nextPlanSteps, nextApprovals, nextToolCalls] = latestRun
       ? await Promise.all([
           apiRequest<PlanStep[]>(`${base}/runs/${latestRun.id}/steps`),
           apiRequest<ApprovalRequest[]>(`${base}/runs/${latestRun.id}/approvals`),
+          apiRequest<ToolCall[]>(`${base}/runs/${latestRun.id}/tool-calls`),
         ])
-      : [[], []];
+      : [[], [], []];
     setPlanSteps(nextPlanSteps);
     setApprovals(nextApprovals);
+    setToolCalls(nextToolCalls);
   }, []);
 
   const loadWorkspace = useCallback(async (nextWorkspaceId: string) => {
     if (!nextWorkspaceId) return;
-    const nextConversations = await apiRequest<Conversation[]>(
-      `workspaces/${nextWorkspaceId}/conversations`,
-    );
+    const [nextConversations, nextTasks] = await Promise.all([
+      apiRequest<Conversation[]>(`workspaces/${nextWorkspaceId}/conversations`),
+      apiRequest<Task[]>(`workspaces/${nextWorkspaceId}/tasks`),
+    ]);
     setConversations(nextConversations);
+    setTasks(nextTasks);
     const nextConversationId = nextConversations[0]?.id ?? "";
     setConversationId(nextConversationId);
     if (nextConversationId) {
@@ -130,6 +142,7 @@ export function Dashboard() {
       setRuns([]);
       setPlanSteps([]);
       setApprovals([]);
+      setToolCalls([]);
     }
   }, [loadConversation]);
 
@@ -188,6 +201,8 @@ export function Dashboard() {
     setRuns([]);
     setPlanSteps([]);
     setApprovals([]);
+    setToolCalls([]);
+    setTasks([]);
     setNotice(null);
     try {
       await loadWorkspace(nextWorkspaceId);
@@ -202,6 +217,7 @@ export function Dashboard() {
     setRuns([]);
     setPlanSteps([]);
     setApprovals([]);
+    setToolCalls([]);
     setNotice(null);
     try {
       await loadConversation(workspaceId, nextConversationId);
@@ -254,6 +270,7 @@ export function Dashboard() {
       setRuns([]);
       setPlanSteps([]);
       setApprovals([]);
+      setToolCalls([]);
       form.reset();
     } catch (error) {
       setNotice(errorMessage(error));
@@ -279,11 +296,12 @@ export function Dashboard() {
 
       const run = await apiRequest<Run>(`${base}/runs`, {
         method: "POST",
-        body: JSON.stringify({ request_message_id: message.id, autonomy_level: 0 }),
+        body: JSON.stringify({ request_message_id: message.id, autonomy_level: autonomyLevel }),
       });
       setRuns((current) => [run, ...current]);
       setPlanSteps([]);
       setApprovals([]);
+      setToolCalls([]);
     } catch (error) {
       setNotice(errorMessage(error));
     } finally {
@@ -312,7 +330,7 @@ export function Dashboard() {
       await loadConversation(workspaceId, conversationId);
       setNotice(
         decision === "approve"
-          ? "سُجلت موافقتك على الخطة المعروضة دون تنفيذ أي أداة بعد."
+          ? "نُفذ الإجراء المصرح به، وحُفظت النتيجة في سجل التشغيل."
           : "رُفض الطلب وأُلغي هذا التشغيل.",
       );
     } catch (error) {
@@ -428,7 +446,13 @@ export function Dashboard() {
           >
             <span>◫</span>المحادثات
           </button>
-          <button className="nav-item disabled" disabled><span>✓</span>المهام<small>قريباً</small></button>
+          <button
+            className="nav-item"
+            type="button"
+            onClick={() => document.getElementById("tasks")?.scrollIntoView({ behavior: "smooth" })}
+          >
+            <span>✓</span>المهام
+          </button>
           <button className="nav-item disabled" disabled><span>↻</span>التشغيلات<small>قريباً</small></button>
         </nav>
 
@@ -483,6 +507,11 @@ export function Dashboard() {
           <article className="stat-card">
             <span className="stat-label">المحادثات</span>
             <strong>{conversations.length}</strong>
+            <small>في المساحة الحالية</small>
+          </article>
+          <article className="stat-card">
+            <span className="stat-label">المهام</span>
+            <strong>{tasks.length}</strong>
             <small>في المساحة الحالية</small>
           </article>
           <article className="stat-card">
@@ -592,6 +621,11 @@ export function Dashboard() {
                                 المخاطر: {RISK_LABELS[step.risk]}
                                 {step.requires_approval ? " · يحتاج موافقة" : " · لا يحتاج موافقة"}
                               </small>
+                              {step.tool_name && (
+                                <code className="tool-action" dir="ltr">
+                                  {step.tool_name}.{step.operation} {JSON.stringify(step.tool_input)}
+                                </code>
+                              )}
                             </span>
                           </li>
                         ))}
@@ -646,12 +680,33 @@ export function Dashboard() {
                       ) : (
                         <small>
                           {approvals[0].status === "approved"
-                            ? "الموافقة مسجلة، والخطة جاهزة لمرحلة التنفيذ اللاحقة."
-                            : "لن يستخدم عَوْن هذا الطلب في أي تنفيذ."}
+                            ? "الموافقة مسجلة، ويجري تنفيذ الإجراء المصرح به."
+                            : approvals[0].status === "consumed"
+                              ? "استُهلكت هذه الموافقة في التنفيذ المسجل أعلاه، ولا يمكن إعادة استخدامها لأثر جديد."
+                              : "لن يستخدم عَوْن هذا الطلب في أي تنفيذ."}
                         </small>
                       )}
                     </section>
                   )}
+                  {toolCalls.map((call) => (
+                    <section className={`tool-call-card tool-${call.status}`} key={call.id}>
+                      <header>
+                        <div>
+                          <span className="eyebrow">سجل الأداة</span>
+                          <h3 dir="ltr">{call.tool_name}.{call.operation}</h3>
+                        </div>
+                        <span className="count-badge">{call.status}</span>
+                      </header>
+                      <p>
+                        {call.status === "succeeded"
+                          ? "اكتمل التنفيذ وحُفظت النتيجة بنجاح."
+                          : call.status === "failed"
+                            ? "فشل التنفيذ وحُفظ رمز الخطأ دون ادعاء النجاح."
+                            : "يجري تنفيذ الإجراء المصرح به."}
+                      </p>
+                      <code dir="ltr">{call.idempotency_key}</code>
+                    </section>
+                  ))}
                 </div>
 
                 <form className="composer" onSubmit={sendMessage}>
@@ -664,7 +719,17 @@ export function Dashboard() {
                     aria-label="رسالتك إلى عَوْن"
                   />
                   <div className="composer-footer">
-                    <span>مستوى التفويض: استشاري</span>
+                    <label className="autonomy-picker">
+                      <span>مستوى التفويض</span>
+                      <select
+                        value={autonomyLevel}
+                        onChange={(event) => setAutonomyLevel(Number(event.target.value) as 0 | 2)}
+                        aria-label="مستوى التفويض"
+                      >
+                        <option value={0}>استشاري — خطة فقط</option>
+                        <option value={2}>منفّذ بإذن — موافقة قبل الأثر</option>
+                      </select>
+                    </label>
                     <button className="send-button" disabled={busy || !draft.trim()}>
                       {busy ? "جارٍ الحفظ…" : "إرسال إلى عَوْن"}
                       <span>←</span>
@@ -680,6 +745,31 @@ export function Dashboard() {
               </div>
             )}
           </section>
+        </section>
+
+        <section className="tasks-board" id="tasks" aria-label="مهام مساحة العمل">
+          <header>
+            <div>
+              <span className="eyebrow">المهام</span>
+              <h2>قائمة العمل الحالية</h2>
+            </div>
+            <span className="count-badge">{tasks.length}</span>
+          </header>
+          {tasks.length === 0 ? (
+            <p className="tasks-empty">لا توجد مهام بعد. اطلب من عَوْن إنشاء مهمة واختر «منفّذ بإذن».</p>
+          ) : (
+            <div className="task-list">
+              {tasks.map((task) => (
+                <article className="task-row" key={task.id}>
+                  <span className={`task-state task-${task.status}`} />
+                  <div>
+                    <strong>{task.title}</strong>
+                    <small>{task.status} · أولوية {task.priority}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       </main>
     </div>

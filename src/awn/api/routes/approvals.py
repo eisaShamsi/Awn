@@ -2,10 +2,11 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
-from awn.api.dependencies import ApprovalServiceDependency
+from awn.api.dependencies import ApprovalServiceDependency, ExecutionServiceDependency
 from awn.domain.approvals import (
+    ApprovalDecision,
     ApprovalDecisionCommand,
     ApprovalDecisionOutcome,
     ApprovalRequest,
@@ -37,7 +38,9 @@ def decide_approval(
     run_id: UUID,
     approval_id: UUID,
     command: ApprovalDecisionCommand,
+    background_tasks: BackgroundTasks,
     service: ApprovalServiceDependency,
+    execution: ExecutionServiceDependency,
 ) -> ApprovalRequest:
     result = service.decide(
         workspace_id,
@@ -65,4 +68,12 @@ def decide_approval(
     detail = conflicts.get(result.outcome)
     if detail is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    if command.decision is ApprovalDecision.APPROVE:
+        background_tasks.add_task(
+            execution.execute_approved,
+            workspace_id,
+            conversation_id,
+            run_id,
+            approval_id,
+        )
     return result.approval

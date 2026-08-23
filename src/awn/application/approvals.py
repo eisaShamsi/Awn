@@ -148,3 +148,18 @@ class ApprovalService:
             command,
             decided_at=datetime.now(UTC),
         )
+
+    def get(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+        run_id: UUID,
+        approval_id: UUID,
+    ) -> ApprovalRequest | None:
+        approvals = self.list(workspace_id, conversation_id, run_id)
+        if approvals is None:
+            return None
+        return next(
+            (approval for approval in approvals if approval.id == approval_id),
+            None,
+        )

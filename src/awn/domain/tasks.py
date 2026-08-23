@@ -22,6 +22,8 @@ class TaskPriority(StrEnum):
 
 
 class TaskCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=4_000)
     priority: TaskPriority = TaskPriority.NORMAL
@@ -44,6 +46,8 @@ class TaskCreate(BaseModel):
 
 
 class TaskUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     due_at: datetime | None = None
@@ -67,6 +71,7 @@ class Task(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID
+    workspace_id: UUID
     title: str
     description: str | None
     status: TaskStatus

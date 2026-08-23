@@ -22,7 +22,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from awn.infrastructure.database import Base
 
-structured_content_type = JSON().with_variant(JSONB(), "postgresql")
+structured_content_type = JSON(none_as_null=True).with_variant(
+    JSONB(none_as_null=True),
+    "postgresql",
+)
 
 
 class UserRecord(Base):
@@ -74,6 +77,11 @@ class WorkspaceRecord(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         overlaps="conversation,runs",
+    )
+    tasks: Mapped[list["TaskRecord"]] = relationship(
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -231,6 +239,12 @@ class RunRecord(Base):
         passive_deletes=True,
         order_by="ApprovalRecord.requested_at",
     )
+    tool_calls: Mapped[list["ToolCallRecord"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ToolCallRecord.created_at",
+    )
 
 
 class PlanStepRecord(Base):
@@ -248,6 +262,11 @@ class PlanStepRecord(Base):
             "risk IN ('low', 'medium', 'high', 'critical')",
             name="ck_plan_steps_risk",
         ),
+        CheckConstraint(
+            "(tool_name IS NULL AND operation IS NULL AND tool_input IS NULL) OR "
+            "(tool_name IS NOT NULL AND operation IS NOT NULL AND tool_input IS NOT NULL)",
+            name="ck_plan_steps_tool_action",
+        ),
         UniqueConstraint("run_id", "position", name="uq_plan_steps_run_position"),
         Index("ix_plan_steps_run_status", "run_id", "status"),
     )
@@ -263,10 +282,20 @@ class PlanStepRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     risk: Mapped[str] = mapped_column(String(16), nullable=False)
     requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    operation: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tool_input: Mapped[dict[str, object] | None] = mapped_column(
+        structured_content_type,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     run: Mapped[RunRecord] = relationship(back_populates="steps")
+    tool_call: Mapped["ToolCallRecord | None"] = relationship(
+        back_populates="plan_step",
+        uselist=False,
+    )
 
 
 class ApprovalRecord(Base):
@@ -311,6 +340,66 @@ class ApprovalRecord(Base):
     run: Mapped[RunRecord] = relationship(back_populates="approvals")
 
 
+class ToolCallRecord(Base):
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'executing', 'succeeded', 'failed', 'cancelled')",
+            name="ck_tool_calls_status",
+        ),
+        CheckConstraint(
+            "risk IN ('low', 'medium', 'high', 'critical')",
+            name="ck_tool_calls_risk",
+        ),
+        UniqueConstraint("plan_step_id", name="uq_tool_calls_plan_step"),
+        UniqueConstraint("idempotency_key", name="uq_tool_calls_idempotency_key"),
+        Index("ix_tool_calls_run_status", "run_id", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    plan_step_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("plan_steps.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    operation: Mapped[str] = mapped_column(String(100), nullable=False)
+    input: Mapped[dict[str, object]] = mapped_column(
+        structured_content_type,
+        nullable=False,
+    )
+    output: Mapped[dict[str, object] | None] = mapped_column(
+        structured_content_type,
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    risk: Mapped[str] = mapped_column(String(16), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    run: Mapped[RunRecord] = relationship(back_populates="tool_calls")
+    plan_step: Mapped[PlanStepRecord] = relationship(back_populates="tool_call")
+    created_task: Mapped["TaskRecord | None"] = relationship(
+        back_populates="source_tool_call",
+        uselist=False,
+    )
+
+
 class TaskRecord(Base):
     __tablename__ = "tasks"
     __table_args__ = (
@@ -324,9 +413,21 @@ class TaskRecord(Base):
         ),
         Index("ix_tasks_status", "status"),
         Index("ix_tasks_due_at", "due_at"),
+        Index("ix_tasks_workspace_status", "workspace_id", "status"),
+        UniqueConstraint("source_tool_call_id", name="uq_tasks_source_tool_call"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    workspace_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_tool_call_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("tool_calls.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -334,3 +435,6 @@ class TaskRecord(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    workspace: Mapped[WorkspaceRecord] = relationship(back_populates="tasks")
+    source_tool_call: Mapped[ToolCallRecord | None] = relationship(back_populates="created_task")

@@ -16,6 +16,7 @@ function isAllowedPath(path: string[]): boolean {
   if (path.length === 1) return path[0] === "setup" || path[0] === "workspaces";
   if (path[0] !== "workspaces" || path.length < 2) return false;
   if (path.length === 2) return true;
+  if (path[2] === "tasks") return path.length === 3 || path.length === 4;
   if (path[2] !== "conversations") return false;
   if (path.length === 3 || path.length === 4) return true;
   if (path[4] === "messages") return path.length === 5;
@@ -23,7 +24,8 @@ function isAllowedPath(path: string[]): boolean {
   return (
     path.length === 5 ||
     path.length === 6 ||
-    (path.length === 7 && (path[6] === "steps" || path[6] === "approvals")) ||
+    (path.length === 7 &&
+      (path[6] === "steps" || path[6] === "approvals" || path[6] === "tool-calls")) ||
     (path.length === 9 && path[6] === "approvals" && path[8] === "decision")
   );
 }
@@ -92,7 +94,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   }
 
   let body: string | undefined;
-  if (request.method === "POST") {
+  if (request.method === "POST" || request.method === "PATCH") {
     if (!request.headers.get("content-type")?.toLowerCase().includes("application/json")) {
       return NextResponse.json({ detail: "نوع المحتوى يجب أن يكون JSON" }, { status: 415 });
     }
@@ -147,5 +149,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  return proxy(request, context);
+}
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
   return proxy(request, context);
 }

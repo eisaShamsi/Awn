@@ -70,7 +70,29 @@ class FakeModelGateway:
         current_request = request.input.rsplit("الطلب الحالي:\n", maxsplit=1)[-1].strip()
         excerpt = current_request[:180]
         normalized_request = current_request.casefold()
+        task_prefixes = (
+            "أنشئ لي مهمة",
+            "انشئ لي مهمة",
+            "أنشئ مهمة",
+            "انشئ مهمة",
+            "أضف مهمة",
+            "اضف مهمة",
+            "create task",
+            "add task",
+        )
+        task_prefix = next(
+            (prefix for prefix in task_prefixes if normalized_request.startswith(prefix)),
+            None,
+        )
+        task_title = (
+            current_request[len(task_prefix) :].strip(" :،.-") if task_prefix is not None else ""
+        )
+        is_task_request = bool(task_prefix and task_title)
         approval_keywords = (
+            "أنشئ مهمة",
+            "انشئ مهمة",
+            "أضف مهمة",
+            "اضف مهمة",
             "أنشئ ملف",
             "اكتب ملف",
             "أرسل",
@@ -81,6 +103,8 @@ class FakeModelGateway:
             "send",
             "publish",
             "delete",
+            "create task",
+            "add task",
         )
         high_risk_keywords = ("أرسل", "انشر", "احذف", "send", "publish", "delete")
         needs_approval = any(keyword in normalized_request for keyword in approval_keywords)
@@ -88,6 +112,15 @@ class FakeModelGateway:
             "high"
             if any(keyword in normalized_request for keyword in high_risk_keywords)
             else "medium"
+        )
+        action = (
+            {
+                "tool_name": "tasks",
+                "operation": "create",
+                "arguments": {"title": task_title[:200]},
+            }
+            if is_task_request
+            else None
         )
 
         if len(current_request) < 10:
@@ -113,9 +146,14 @@ class FakeModelGateway:
                         "requires_approval": False,
                     },
                     {
-                        "title": "إعداد الناتج المقترح",
+                        "title": (
+                            "إنشاء المهمة داخل مساحة العمل"
+                            if is_task_request
+                            else "إعداد الناتج المقترح"
+                        ),
                         "risk": effect_risk if needs_approval else "low",
                         "requires_approval": needs_approval,
+                        **({"action": action} if action is not None else {}),
                     },
                     {
                         "title": "مراجعة الناتج والتحقق من اكتماله",

@@ -94,6 +94,39 @@ export interface PlanStep {
   status: "pending" | "in_progress" | "succeeded" | "failed" | "skipped" | "cancelled";
   risk: RunRisk;
   requires_approval: boolean;
+  tool_name: string | null;
+  operation: string | null;
+  tool_input: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ToolCall {
+  id: string;
+  run_id: string;
+  plan_step_id: string;
+  tool_name: string;
+  operation: string;
+  input: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  status: "pending" | "executing" | "succeeded" | "failed" | "cancelled";
+  risk: RunRisk;
+  idempotency_key: string;
+  error_code: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Task {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string | null;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+  priority: "low" | "normal" | "high";
+  due_at: string | null;
   created_at: string;
   updated_at: string;
 }
