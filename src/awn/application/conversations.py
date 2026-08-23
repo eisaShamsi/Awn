@@ -1,5 +1,7 @@
 """Workspace-scoped conversation and message use cases."""
 
+from __future__ import annotations
+
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Protocol

@@ -1,5 +1,7 @@
 """Workspace-scoped run creation and observation use cases."""
 
+from __future__ import annotations
+
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Protocol
