@@ -41,6 +41,13 @@ class RunRepository(Protocol):
         run_id: UUID,
     ) -> Iterable[PlanStep] | None: ...
 
+    def save(
+        self,
+        owner_id: UUID,
+        run: Run,
+        steps: Iterable[PlanStep] | None = None,
+    ) -> Run | None: ...
+
 
 class RunService:
     def __init__(
@@ -114,3 +121,13 @@ class RunService:
             run_id,
         )
         return list(steps) if steps is not None else None
+
+    def save(
+        self,
+        run: Run,
+        steps: Iterable[PlanStep] | None = None,
+    ) -> Run | None:
+        owner_id = self._owner_id()
+        if owner_id is None:
+            return None
+        return self._repository.save(owner_id, run, steps)

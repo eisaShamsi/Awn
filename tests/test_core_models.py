@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from awn.agent.planning import OrchestrationDecision
 from awn.domain.conversations import MessagePart, MessagePartType
 from awn.domain.runs import Run, RunRisk, RunStatus
 from awn.infrastructure.database import Database
@@ -79,6 +80,30 @@ def test_message_parts_are_structured_and_non_empty() -> None:
 
     with pytest.raises(ValidationError, match="tool_result parts require data"):
         MessagePart(type=MessagePartType.TOOL_RESULT)
+
+
+def test_orchestration_decision_requires_steps_only_for_plans() -> None:
+    decision = OrchestrationDecision.model_validate(
+        {
+            "kind": "plan",
+            "message": "خطة مقترحة",
+            "steps": [{"title": "تحليل الطلب", "risk": "low"}],
+        }
+    )
+
+    assert decision.steps[0].title == "تحليل الطلب"
+
+    with pytest.raises(ValidationError, match="plan decisions require at least one step"):
+        OrchestrationDecision(kind="plan", message="خطة بلا خطوات")
+
+    with pytest.raises(ValidationError, match="only plan decisions may include steps"):
+        OrchestrationDecision.model_validate(
+            {
+                "kind": "answer",
+                "message": "إجابة",
+                "steps": [{"title": "خطوة غير مسموحة"}],
+            }
+        )
 
 
 def _insert_execution_graph(database: Database, *, autonomy_level: int = 2) -> dict[str, object]:

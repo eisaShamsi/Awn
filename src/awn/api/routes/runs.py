@@ -2,9 +2,9 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
-from awn.api.dependencies import RunServiceDependency
+from awn.api.dependencies import OrchestratorServiceDependency, RunServiceDependency
 from awn.domain.runs import PlanStep, Run, RunCreate
 
 router = APIRouter(
@@ -18,7 +18,9 @@ def create_run(
     workspace_id: UUID,
     conversation_id: UUID,
     command: RunCreate,
+    background_tasks: BackgroundTasks,
     service: RunServiceDependency,
+    orchestrator: OrchestratorServiceDependency,
 ) -> Run:
     run = service.create(workspace_id, conversation_id, command)
     if run is None:
@@ -26,6 +28,12 @@ def create_run(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation or request message not found",
         )
+    background_tasks.add_task(
+        orchestrator.plan,
+        workspace_id,
+        conversation_id,
+        run.id,
+    )
     return run
 
 

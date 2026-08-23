@@ -157,6 +157,29 @@ class SqlAlchemyConversationRepository:
             session.flush()
             return _message(record)
 
+    def get_message(
+        self,
+        owner_id: UUID,
+        workspace_id: UUID,
+        conversation_id: UUID,
+        message_id: UUID,
+    ) -> Message | None:
+        statement = (
+            select(MessageRecord)
+            .join(ConversationRecord)
+            .join(WorkspaceRecord)
+            .where(
+                WorkspaceRecord.owner_id == owner_id,
+                ConversationRecord.workspace_id == workspace_id,
+                ConversationRecord.id == conversation_id,
+                MessageRecord.conversation_id == conversation_id,
+                MessageRecord.id == message_id,
+            )
+        )
+        with self._session_factory() as session:
+            record = session.scalar(statement)
+            return _message(record) if record is not None else None
+
     def list_messages(
         self,
         owner_id: UUID,

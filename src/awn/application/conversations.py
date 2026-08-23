@@ -12,6 +12,8 @@ from awn.domain.conversations import (
     ConversationCreate,
     ConversationStatus,
     Message,
+    MessagePart,
+    MessagePartType,
     MessageRole,
     UserMessageCreate,
 )
@@ -47,6 +49,14 @@ class ConversationRepository(Protocol):
         owner_id: UUID,
         workspace_id: UUID,
         message: Message,
+    ) -> Message | None: ...
+
+    def get_message(
+        self,
+        owner_id: UUID,
+        workspace_id: UUID,
+        conversation_id: UUID,
+        message_id: UUID,
     ) -> Message | None: ...
 
     def list_messages(
@@ -122,6 +132,41 @@ class ConversationService:
             created_at=datetime.now(UTC),
         )
         return self._repository.add_message(owner_id, workspace_id, message)
+
+    def add_assistant_message(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+        text: str,
+    ) -> Message | None:
+        owner_id = self._owner_id()
+        if owner_id is None:
+            return None
+
+        message = Message(
+            id=uuid4(),
+            conversation_id=conversation_id,
+            role=MessageRole.ASSISTANT,
+            parts=(MessagePart(type=MessagePartType.TEXT, text=text),),
+            created_at=datetime.now(UTC),
+        )
+        return self._repository.add_message(owner_id, workspace_id, message)
+
+    def get_message(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+        message_id: UUID,
+    ) -> Message | None:
+        owner_id = self._owner_id()
+        if owner_id is None:
+            return None
+        return self._repository.get_message(
+            owner_id,
+            workspace_id,
+            conversation_id,
+            message_id,
+        )
 
     def list_messages(
         self,

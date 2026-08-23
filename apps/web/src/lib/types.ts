@@ -78,3 +78,15 @@ export interface Run {
   created_at: string;
   updated_at: string;
 }
+
+export interface PlanStep {
+  id: string;
+  run_id: string;
+  position: number;
+  title: string;
+  status: "pending" | "in_progress" | "succeeded" | "failed" | "skipped" | "cancelled";
+  risk: RunRisk;
+  requires_approval: boolean;
+  created_at: string;
+  updated_at: string;
+}

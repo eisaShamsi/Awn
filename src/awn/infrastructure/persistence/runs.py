@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from awn.domain.runs import PlanStep, PlanStepStatus, Run, RunRisk, RunStatus
@@ -183,3 +183,50 @@ class SqlAlchemyRunRepository:
             if session.scalar(run_statement) is None:
                 return None
             return tuple(_step(record) for record in session.scalars(step_statement))
+
+    def save(
+        self,
+        owner_id: UUID,
+        run: Run,
+        steps: Iterable[PlanStep] | None = None,
+    ) -> Run | None:
+        statement = self._scoped_run_statement(
+            owner_id,
+            run.workspace_id,
+            run.conversation_id,
+        ).where(RunRecord.id == run.id)
+        persisted_steps = tuple(steps) if steps is not None else None
+        if persisted_steps is not None and any(step.run_id != run.id for step in persisted_steps):
+            raise ValueError("all plan steps must belong to the saved run")
+
+        with self._session_factory.begin() as session:
+            record = session.scalar(statement)
+            if record is None:
+                return None
+
+            record.status = run.status.value
+            record.risk = run.risk.value
+            record.error_code = run.error_code
+            record.started_at = run.started_at
+            record.completed_at = run.completed_at
+            record.updated_at = run.updated_at
+
+            if persisted_steps is not None:
+                session.execute(delete(PlanStepRecord).where(PlanStepRecord.run_id == run.id))
+                session.add_all(
+                    PlanStepRecord(
+                        id=step.id,
+                        run_id=step.run_id,
+                        position=step.position,
+                        title=step.title,
+                        status=step.status.value,
+                        risk=step.risk.value,
+                        requires_approval=step.requires_approval,
+                        created_at=step.created_at,
+                        updated_at=step.updated_at,
+                    )
+                    for step in persisted_steps
+                )
+
+            session.flush()
+            return _run(record)

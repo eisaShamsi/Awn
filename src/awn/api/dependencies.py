@@ -6,6 +6,7 @@ from fastapi import Depends, Request
 
 from awn.application.conversations import ConversationService
 from awn.application.identity import IdentityService
+from awn.application.orchestrator import OrchestratorService
 from awn.application.runs import RunService
 from awn.application.tasks import TaskService
 from awn.config import Settings
@@ -28,6 +29,10 @@ def get_run_service(request: Request) -> RunService:
     return request.app.state.run_service
 
 
+def get_orchestrator_service(request: Request) -> OrchestratorService:
+    return request.app.state.orchestrator_service
+
+
 def get_app_settings(request: Request) -> Settings:
     return request.app.state.settings
 
@@ -43,5 +48,9 @@ ConversationServiceDependency = Annotated[
     Depends(get_conversation_service),
 ]
 RunServiceDependency = Annotated[RunService, Depends(get_run_service)]
+OrchestratorServiceDependency = Annotated[
+    OrchestratorService,
+    Depends(get_orchestrator_service),
+]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
 DatabaseDependency = Annotated[Database, Depends(get_database)]

@@ -113,8 +113,60 @@ def test_workspace_conversation_message_and_run_flow(client: TestClient) -> None
 
     assert [item["id"] for item in runs.json()] == [run["id"]]
     assert fetched.json()["trace_id"] == run["trace_id"]
-    assert steps.json() == []
-    assert [item["id"] for item in messages.json()] == [message["id"]]
+    assert fetched.json()["status"] == "ready"
+    assert [item["position"] for item in steps.json()] == [0, 1, 2]
+    assert [item["role"] for item in messages.json()] == ["user", "assistant"]
+    assert messages.json()[0]["id"] == message["id"]
+
+
+def test_fake_orchestrator_answers_or_requests_clarification(client: TestClient) -> None:
+    setup = _setup(client)
+    workspace_id = setup["workspace"]["id"]
+
+    answer_conversation = _conversation(client, workspace_id)
+    answer_message = _message(
+        client,
+        workspace_id,
+        answer_conversation["id"],
+        "هل تستطيع شرح الخطة الحالية؟",
+    )
+    answer_run = client.post(
+        f"/api/v1/workspaces/{workspace_id}/conversations/{answer_conversation['id']}/runs",
+        json={"request_message_id": answer_message["id"]},
+    ).json()
+    answer_state = client.get(
+        f"/api/v1/workspaces/{workspace_id}/conversations/{answer_conversation['id']}"
+        f"/runs/{answer_run['id']}"
+    )
+    answer_messages = client.get(
+        f"/api/v1/workspaces/{workspace_id}/conversations/{answer_conversation['id']}/messages"
+    )
+
+    clarification_conversation = _conversation(client, workspace_id)
+    clarification_message = _message(
+        client,
+        workspace_id,
+        clarification_conversation["id"],
+        "ساعدني",
+    )
+    clarification_run = client.post(
+        f"/api/v1/workspaces/{workspace_id}/conversations/{clarification_conversation['id']}/runs",
+        json={"request_message_id": clarification_message["id"]},
+    ).json()
+    clarification_state = client.get(
+        f"/api/v1/workspaces/{workspace_id}/conversations/"
+        f"{clarification_conversation['id']}/runs/{clarification_run['id']}"
+    )
+    clarification_messages = client.get(
+        f"/api/v1/workspaces/{workspace_id}/conversations/"
+        f"{clarification_conversation['id']}/messages"
+    )
+
+    assert answer_state.json()["status"] == "succeeded"
+    assert answer_state.json()["completed_at"] is not None
+    assert [message["role"] for message in answer_messages.json()] == ["user", "assistant"]
+    assert clarification_state.json()["status"] == "needs_clarification"
+    assert "النتيجة المحددة" in clarification_messages.json()[-1]["parts"][0]["text"]
 
 
 def test_workspace_scope_and_request_message_are_enforced(client: TestClient) -> None:

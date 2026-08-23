@@ -6,6 +6,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import type {
   Conversation,
   Message,
+  PlanStep,
   Run,
   RunStatus,
   SetupState,
@@ -37,6 +38,13 @@ const TERMINAL_RUNS = new Set<RunStatus>([
   "cancelled",
 ]);
 
+const RISK_LABELS: Record<PlanStep["risk"], string> = {
+  low: "منخفض",
+  medium: "متوسط",
+  high: "مرتفع",
+  critical: "حرج",
+};
+
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("ar-AE", {
     hour: "2-digit",
@@ -65,6 +73,7 @@ export function Dashboard() {
   const [conversationId, setConversationId] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -73,6 +82,7 @@ export function Dashboard() {
     if (!nextWorkspaceId || !nextConversationId) {
       setMessages([]);
       setRuns([]);
+      setPlanSteps([]);
       return;
     }
     const base = `workspaces/${nextWorkspaceId}/conversations/${nextConversationId}`;
@@ -82,6 +92,11 @@ export function Dashboard() {
     ]);
     setMessages(nextMessages);
     setRuns(nextRuns);
+    const latestRun = nextRuns[0];
+    const nextPlanSteps = latestRun
+      ? await apiRequest<PlanStep[]>(`${base}/runs/${latestRun.id}/steps`)
+      : [];
+    setPlanSteps(nextPlanSteps);
   }, []);
 
   const loadWorkspace = useCallback(async (nextWorkspaceId: string) => {
@@ -97,6 +112,7 @@ export function Dashboard() {
     } else {
       setMessages([]);
       setRuns([]);
+      setPlanSteps([]);
     }
   }, [loadConversation]);
 
@@ -136,11 +152,10 @@ export function Dashboard() {
   useEffect(() => {
     if (!workspaceId || !conversationId) return;
     const interval = window.setInterval(() => {
-      const base = `workspaces/${workspaceId}/conversations/${conversationId}`;
-      void apiRequest<Run[]>(`${base}/runs`).then(setRuns).catch(() => undefined);
-    }, 5_000);
+      void loadConversation(workspaceId, conversationId).catch(() => undefined);
+    }, 2_500);
     return () => window.clearInterval(interval);
-  }, [conversationId, workspaceId]);
+  }, [conversationId, loadConversation, workspaceId]);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === conversationId) ?? null,
@@ -154,6 +169,7 @@ export function Dashboard() {
     setConversations([]);
     setMessages([]);
     setRuns([]);
+    setPlanSteps([]);
     setNotice(null);
     try {
       await loadWorkspace(nextWorkspaceId);
@@ -166,6 +182,7 @@ export function Dashboard() {
     setConversationId(nextConversationId);
     setMessages([]);
     setRuns([]);
+    setPlanSteps([]);
     setNotice(null);
     try {
       await loadConversation(workspaceId, nextConversationId);
@@ -216,6 +233,7 @@ export function Dashboard() {
       setConversationId(conversation.id);
       setMessages([]);
       setRuns([]);
+      setPlanSteps([]);
       form.reset();
     } catch (error) {
       setNotice(errorMessage(error));
@@ -244,6 +262,7 @@ export function Dashboard() {
         body: JSON.stringify({ request_message_id: message.id, autonomy_level: 0 }),
       });
       setRuns((current) => [run, ...current]);
+      setPlanSteps([]);
     } catch (error) {
       setNotice(errorMessage(error));
     } finally {
@@ -416,7 +435,7 @@ export function Dashboard() {
           <article className="stat-card">
             <span className="stat-label">التشغيلات النشطة</span>
             <strong>{activeRuns}</strong>
-            <small>{activeRuns ? "تُحدّث كل خمس ثوانٍ" : "لا يوجد عمل معلّق"}</small>
+            <small>{activeRuns ? "تُحدّث تلقائيًا" : "لا يوجد عمل معلّق"}</small>
           </article>
         </section>
 
@@ -492,8 +511,40 @@ export function Dashboard() {
                   {runs[0]?.status === "received" && (
                     <div className="run-note">
                       <span className="pulse" />
-                      تم استلام الطلب. سيبدأ التخطيط بعد إضافة منسق عَوْن في الخطوة التالية.
+                      تم استلام الطلب، وسيبدأ عَوْن بتحليله الآن.
                     </div>
+                  )}
+                  {runs[0]?.status === "planning" && (
+                    <div className="run-note">
+                      <span className="pulse" />
+                      يجري إعداد إجابة أو خطة منظمة قابلة للمراجعة.
+                    </div>
+                  )}
+                  {runs[0]?.status === "ready" && planSteps.length > 0 && (
+                    <section className="plan-card" aria-label="الخطة المقترحة">
+                      <header>
+                        <div>
+                          <span className="eyebrow">الخطة المقترحة</span>
+                          <h3>خطوات العمل قبل التنفيذ</h3>
+                        </div>
+                        <span className="count-badge">{planSteps.length}</span>
+                      </header>
+                      <ol>
+                        {planSteps.map((step) => (
+                          <li key={step.id}>
+                            <span className="step-number">{step.position + 1}</span>
+                            <span className="step-copy">
+                              <strong>{step.title}</strong>
+                              <small>
+                                المخاطر: {RISK_LABELS[step.risk]}
+                                {step.requires_approval ? " · يحتاج موافقة" : " · لا يحتاج موافقة"}
+                              </small>
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                      <p>هذه خطة فقط؛ لم ينفذ عَوْن أي إجراء بعد.</p>
+                    </section>
                   )}
                 </div>
 
