@@ -1,13 +1,8 @@
 from fastapi.testclient import TestClient
 
-from awn.api.app import create_app
-from awn.config import Settings
 
-
-def test_health_reports_safe_runtime_metadata() -> None:
-    app = create_app(Settings(environment="test", model_provider="fake"))
-
-    response = TestClient(app).get("/health")
+def test_health_reports_safe_runtime_metadata(client: TestClient) -> None:
+    response = client.get("/health")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -17,3 +12,10 @@ def test_health_reports_safe_runtime_metadata() -> None:
         "environment": "test",
         "model_provider": "fake",
     }
+
+
+def test_readiness_checks_the_database(client: TestClient) -> None:
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "database": "sqlite"}

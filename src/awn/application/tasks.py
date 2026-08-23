@@ -2,7 +2,6 @@
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from threading import RLock
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -17,32 +16,6 @@ class TaskRepository(Protocol):
     def list(self) -> Iterable[Task]: ...
 
     def replace(self, task: Task) -> Task: ...
-
-
-class InMemoryTaskRepository:
-    """Development repository; PostgreSQL replaces it in the persistence milestone."""
-
-    def __init__(self) -> None:
-        self._tasks: dict[UUID, Task] = {}
-        self._lock = RLock()
-
-    def add(self, task: Task) -> Task:
-        with self._lock:
-            self._tasks[task.id] = task
-        return task
-
-    def get(self, task_id: UUID) -> Task | None:
-        with self._lock:
-            return self._tasks.get(task_id)
-
-    def list(self) -> Iterable[Task]:
-        with self._lock:
-            return tuple(self._tasks.values())
-
-    def replace(self, task: Task) -> Task:
-        with self._lock:
-            self._tasks[task.id] = task
-        return task
 
 
 class TaskService:
@@ -74,7 +47,7 @@ class TaskService:
         if task is None:
             return None
 
-        changes = command.model_dump(exclude_unset=True, exclude_none=True)
+        changes = command.model_dump(exclude_unset=True)
         if not changes:
             return task
         changes["updated_at"] = datetime.now(UTC)

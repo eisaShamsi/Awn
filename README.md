@@ -74,20 +74,25 @@
 
 ## تشغيل النواة محليًا
 
-تحتاج إلى Python `3.12+`. بوابة النماذج الوهمية هي الافتراضية، ولذلك لا يلزم مفتاح API لتشغيل الاختبارات أو تجربة API الحالية.
+تحتاج إلى Python `3.12+` وPostgreSQL. بوابة النماذج الوهمية هي الافتراضية، ولذلك لا يلزم مفتاح API لتشغيل الاختبارات أو تجربة API الحالية.
 
 ```powershell
 cd E:\OpenAI_Codex\Awn
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+docker compose up -d database
+alembic upgrade head
 pytest
 uvicorn apps.api.main:app --reload
 ```
 
+يمكنك استخدام PostgreSQL مثبت مسبقًا بدل Docker؛ اضبط `AWN_DATABASE_URL` في `.env` ثم شغّل `alembic upgrade head`. تستخدم الاختبارات السريعة SQLite معزولة، بينما يشغّل CI اختبار تكامل حقيقيًا على PostgreSQL.
+
 بعد التشغيل:
 
 - فحص الخدمة: `http://127.0.0.1:8000/health`
+- فحص جاهزية قاعدة البيانات: `http://127.0.0.1:8000/ready`
 - توثيق API التفاعلي: `http://127.0.0.1:8000/docs`
 
 لاستخدام OpenAI، انسخ `.env.example` إلى `.env`، واختر `AWN_MODEL_PROVIDER=openai` ثم عيّن `AWN_OPENAI_MODEL` و`AWN_OPENAI_API_KEY`. لا تضف ملف `.env` إلى Git.

@@ -1,16 +1,7 @@
 from fastapi.testclient import TestClient
 
-from awn.api.app import create_app
-from awn.config import Settings
 
-
-def make_client() -> TestClient:
-    return TestClient(create_app(Settings(environment="test", model_provider="fake")))
-
-
-def test_create_list_and_complete_task() -> None:
-    client = make_client()
-
+def test_create_list_and_complete_task(client: TestClient) -> None:
     created = client.post(
         "/api/v1/tasks",
         json={"title": "  مراجعة تقرير عَوْن  ", "priority": "high"},
@@ -34,9 +25,7 @@ def test_create_list_and_complete_task() -> None:
     assert completed.json()["status"] == "completed"
 
 
-def test_rejects_blank_title_and_naive_due_date() -> None:
-    client = make_client()
-
+def test_rejects_blank_title_and_naive_due_date(client: TestClient) -> None:
     blank = client.post("/api/v1/tasks", json={"title": "   "})
     naive_date = client.post(
         "/api/v1/tasks",
@@ -47,9 +36,33 @@ def test_rejects_blank_title_and_naive_due_date() -> None:
     assert naive_date.status_code == 422
 
 
-def test_missing_task_returns_not_found() -> None:
-    client = make_client()
+def test_due_date_can_be_cleared(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        json={"title": "موعد", "due_at": "2026-08-24T09:00:00+04:00"},
+    ).json()
 
+    response = client.patch(
+        f"/api/v1/tasks/{created['id']}",
+        json={"due_at": None},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["due_at"] is None
+
+
+def test_rejects_null_status(client: TestClient) -> None:
+    created = client.post("/api/v1/tasks", json={"title": "مهمة"}).json()
+
+    response = client.patch(
+        f"/api/v1/tasks/{created['id']}",
+        json={"status": None},
+    )
+
+    assert response.status_code == 422
+
+
+def test_missing_task_returns_not_found(client: TestClient) -> None:
     response = client.get("/api/v1/tasks/00000000-0000-0000-0000-000000000000")
 
     assert response.status_code == 404

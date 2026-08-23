@@ -2,9 +2,10 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TaskStatus(StrEnum):
@@ -53,6 +54,13 @@ class TaskUpdate(BaseModel):
         if value is not None and value.tzinfo is None:
             raise ValueError("due_at must include a timezone")
         return value
+
+    @model_validator(mode="after")
+    def required_values_must_not_be_null(self) -> Self:
+        for field in ("status", "priority"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} must not be null")
+        return self
 
 
 class Task(BaseModel):

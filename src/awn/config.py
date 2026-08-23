@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     model_provider: Literal["fake", "openai"] = "fake"
     openai_model: str | None = None
     openai_api_key: SecretStr | None = None
-    database_url: str = "postgresql+psycopg://awn:awn@localhost:5432/awn"
+    database_url: SecretStr = SecretStr("postgresql+psycopg://awn:awn@localhost:5432/awn")
 
     @model_validator(mode="after")
     def require_openai_configuration(self) -> Self:
