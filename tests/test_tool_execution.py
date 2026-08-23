@@ -112,7 +112,11 @@ def test_consumed_approval_and_tool_result_survive_app_restart(tmp_path) -> None
     first_database = Database(database_url)
     first_database.create_schema()
     first_app = create_app(
-        Settings(environment="test", model_provider="fake"),
+        Settings(
+            environment="test",
+            model_provider="fake",
+            workspace_files_root=tmp_path / "first-workspaces",
+        ),
         database=first_database,
     )
 
@@ -135,7 +139,11 @@ def test_consumed_approval_and_tool_result_survive_app_restart(tmp_path) -> None
 
     second_database = Database(database_url)
     second_app = create_app(
-        Settings(environment="test", model_provider="fake"),
+        Settings(
+            environment="test",
+            model_provider="fake",
+            workspace_files_root=tmp_path / "second-workspaces",
+        ),
         database=second_database,
     )
     with TestClient(second_app) as second_client:

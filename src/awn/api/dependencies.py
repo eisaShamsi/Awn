@@ -11,6 +11,7 @@ from awn.application.identity import IdentityService
 from awn.application.orchestrator import OrchestratorService
 from awn.application.runs import RunService
 from awn.application.tasks import TaskService
+from awn.application.worker import WorkerService
 from awn.config import Settings
 from awn.infrastructure.database import Database
 
@@ -43,6 +44,10 @@ def get_execution_service(request: Request) -> ExecutionService:
     return request.app.state.execution_service
 
 
+def get_worker_service(request: Request) -> WorkerService:
+    return request.app.state.worker_service
+
+
 def get_app_settings(request: Request) -> Settings:
     return request.app.state.settings
 
@@ -64,5 +69,6 @@ OrchestratorServiceDependency = Annotated[
 ]
 ApprovalServiceDependency = Annotated[ApprovalService, Depends(get_approval_service)]
 ExecutionServiceDependency = Annotated[ExecutionService, Depends(get_execution_service)]
+WorkerServiceDependency = Annotated[WorkerService, Depends(get_worker_service)]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
 DatabaseDependency = Annotated[Database, Depends(get_database)]

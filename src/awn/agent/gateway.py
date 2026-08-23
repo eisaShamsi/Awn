@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -88,6 +89,15 @@ class FakeModelGateway:
             current_request[len(task_prefix) :].strip(" :،.-") if task_prefix is not None else ""
         )
         is_task_request = bool(task_prefix and task_title)
+        file_match = re.fullmatch(
+            r"(?:(?:أنشئ|انشئ|اكتب)\s+ملف|(?:create|write)\s+file)\s+"
+            r"(.+?)\s+(?:بالمحتوى|with\s+content)\s*[:：]?\s*(.*)",
+            current_request,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        file_path = file_match.group(1).strip(" \t\r\n\"'«»") if file_match else ""
+        file_content = file_match.group(2) if file_match else ""
+        is_file_request = bool(file_match and file_path)
         approval_keywords = (
             "أنشئ مهمة",
             "انشئ مهمة",
@@ -113,15 +123,19 @@ class FakeModelGateway:
             if any(keyword in normalized_request for keyword in high_risk_keywords)
             else "medium"
         )
-        action = (
-            {
+        action: dict[str, object] | None = None
+        if is_task_request:
+            action = {
                 "tool_name": "tasks",
                 "operation": "create",
                 "arguments": {"title": task_title[:200]},
             }
-            if is_task_request
-            else None
-        )
+        elif is_file_request:
+            action = {
+                "tool_name": "files",
+                "operation": "create",
+                "arguments": {"path": file_path, "content": file_content},
+            }
 
         if len(current_request) < 10:
             data: dict[str, object] = {
@@ -149,7 +163,11 @@ class FakeModelGateway:
                         "title": (
                             "إنشاء المهمة داخل مساحة العمل"
                             if is_task_request
-                            else "إعداد الناتج المقترح"
+                            else (
+                                "إنشاء الملف داخل مساحة العمل الآمنة"
+                                if is_file_request
+                                else "إعداد الناتج المقترح"
+                            )
                         ),
                         "risk": effect_risk if needs_approval else "low",
                         "requires_approval": needs_approval,

@@ -17,9 +17,13 @@ def database() -> Iterator[Database]:
 
 
 @pytest.fixture
-def client(database: Database) -> Iterator[TestClient]:
+def client(database: Database, tmp_path) -> Iterator[TestClient]:
     app = create_app(
-        Settings(environment="test", model_provider="fake"),
+        Settings(
+            environment="test",
+            model_provider="fake",
+            workspace_files_root=tmp_path / "workspaces",
+        ),
         database=database,
     )
     with TestClient(app) as test_client:

@@ -354,6 +354,11 @@ class ToolCallRecord(Base):
         UniqueConstraint("plan_step_id", name="uq_tool_calls_plan_step"),
         UniqueConstraint("idempotency_key", name="uq_tool_calls_idempotency_key"),
         Index("ix_tool_calls_run_status", "run_id", "status"),
+        Index("ix_tool_calls_queue", "status", "available_at", "lease_expires_at"),
+        CheckConstraint(
+            "attempt_count >= 0 AND max_attempts >= 1 AND attempt_count <= max_attempts",
+            name="ck_tool_calls_attempts",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
@@ -381,6 +386,14 @@ class ToolCallRecord(Base):
     risk: Mapped[str] = mapped_column(String(16), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(nullable=False, default=3)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

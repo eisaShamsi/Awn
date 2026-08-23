@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from awn.domain.runs import RunRisk
+from awn.domain.runs import Run, RunRisk
 
 
 class ToolCallStatus(StrEnum):
@@ -37,6 +37,10 @@ class ToolCall(BaseModel):
     risk: RunRisk
     idempotency_key: str = Field(pattern=r"^[0-9a-f]{64}$")
     error_code: str | None = Field(default=None, max_length=100)
+    attempt_count: int = Field(default=0, ge=0)
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    available_at: datetime
+    lease_expires_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime
@@ -45,6 +49,18 @@ class ToolCall(BaseModel):
     _validate_timestamps = field_validator(
         "started_at",
         "completed_at",
+        "available_at",
+        "lease_expires_at",
         "created_at",
         "updated_at",
     )(_require_aware)
+
+
+class LeasedToolCall(BaseModel):
+    """A queue item plus the immutable security context required to execute it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    owner_id: UUID
+    run: Run
+    call: ToolCall

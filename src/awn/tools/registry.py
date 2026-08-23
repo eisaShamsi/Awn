@@ -26,6 +26,10 @@ class InvalidToolOutputError(ToolRegistryError):
     pass
 
 
+class RetryableToolError(ToolRegistryError):
+    """A transient tool failure that may be retried within the configured limit."""
+
+
 class ToolRegistry:
     def __init__(self, definitions: Iterable[ToolDefinition] = ()) -> None:
         self._definitions: dict[tuple[str, str], ToolDefinition] = {}

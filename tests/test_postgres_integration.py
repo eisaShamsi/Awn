@@ -1,5 +1,5 @@
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,10 +17,12 @@ from awn.infrastructure.persistence.models import (
     MessageRecord,
     PlanStepRecord,
     RunRecord,
+    ToolCallRecord,
     UserRecord,
     WorkspaceRecord,
 )
 from awn.infrastructure.persistence.tasks import SqlAlchemyTaskRepository
+from awn.infrastructure.persistence.tool_calls import SqlAlchemyToolCallRepository
 
 POSTGRES_URL = os.getenv("AWN_TEST_POSTGRES_URL")
 
@@ -197,6 +199,136 @@ def test_core_execution_graph_round_trip_on_postgresql() -> None:
             assert run.workspace_id == workspace_id
             assert [step.title for step in run.steps] == ["تحليل الطلب"]
             assert message.content == [{"type": "text", "text": "نفذ"}]
+    finally:
+        with database.session_factory.begin() as session:
+            owner = session.get(UserRecord, user_id)
+            if owner is not None:
+                session.delete(owner)
+        database.dispose()
+
+
+@pytest.mark.skipif(not POSTGRES_URL, reason="AWN_TEST_POSTGRES_URL is not configured")
+def test_leased_tool_queue_recovers_on_postgresql() -> None:
+    assert POSTGRES_URL is not None
+    database = Database(POSTGRES_URL)
+    now = datetime.now(UTC)
+    user_id = uuid4()
+    workspace_id = uuid4()
+    conversation_id = uuid4()
+    run_id = uuid4()
+    step_id = uuid4()
+    call_id = uuid4()
+
+    try:
+        with database.session_factory.begin() as session:
+            session.add_all(
+                [
+                    UserRecord(
+                        id=user_id,
+                        display_name="PostgreSQL queue user",
+                        locale="ar",
+                        timezone="Asia/Dubai",
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    WorkspaceRecord(
+                        id=workspace_id,
+                        owner_id=user_id,
+                        name="PostgreSQL queue workspace",
+                        status="active",
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    ConversationRecord(
+                        id=conversation_id,
+                        workspace_id=workspace_id,
+                        title="PostgreSQL queue conversation",
+                        status="active",
+                        summary=None,
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    RunRecord(
+                        id=run_id,
+                        workspace_id=workspace_id,
+                        conversation_id=conversation_id,
+                        request_message_id=None,
+                        trace_id=uuid4(),
+                        status="executing",
+                        risk="low",
+                        autonomy_level=2,
+                        error_code=None,
+                        started_at=now,
+                        completed_at=None,
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    PlanStepRecord(
+                        id=step_id,
+                        run_id=run_id,
+                        position=0,
+                        title="اختبار استعادة العامل",
+                        status="pending",
+                        risk="low",
+                        requires_approval=True,
+                        tool_name="tasks",
+                        operation="create",
+                        tool_input={"title": "اختبار"},
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    ToolCallRecord(
+                        id=call_id,
+                        run_id=run_id,
+                        plan_step_id=step_id,
+                        tool_name="tasks",
+                        operation="create",
+                        input={"title": "اختبار"},
+                        output=None,
+                        status="pending",
+                        risk="low",
+                        idempotency_key="a" * 64,
+                        error_code=None,
+                        attempt_count=0,
+                        max_attempts=3,
+                        available_at=now,
+                        lease_owner=None,
+                        lease_expires_at=None,
+                        started_at=None,
+                        completed_at=None,
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                ]
+            )
+
+        repository = SqlAlchemyToolCallRepository(database.session_factory)
+        abandoned = repository.claim_next(
+            "postgres-stopped-worker",
+            claimed_at=now,
+            lease_seconds=1,
+        )
+        recovered = repository.claim_next(
+            "postgres-recovery-worker",
+            claimed_at=now + timedelta(seconds=2),
+            lease_seconds=30,
+        )
+
+        assert abandoned is not None
+        assert recovered is not None
+        assert recovered.call.id == abandoned.call.id
+        assert recovered.call.attempt_count == 1
+        completed = repository.succeed(
+            user_id,
+            workspace_id,
+            conversation_id,
+            call_id,
+            {"verified": True},
+            worker_id="postgres-recovery-worker",
+            completed_at=now + timedelta(seconds=3),
+        )
+        assert completed is not None
+        assert completed.status.value == "succeeded"
     finally:
         with database.session_factory.begin() as session:
             owner = session.get(UserRecord, user_id)

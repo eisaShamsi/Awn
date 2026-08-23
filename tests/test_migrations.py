@@ -35,6 +35,9 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
     assert {"ix_approvals_expires_at", "ix_approvals_run_status"} == {
         index["name"] for index in inspector.get_indexes("approvals")
     }
+    assert {"ix_tool_calls_queue", "ix_tool_calls_run_status"} == {
+        index["name"] for index in inspector.get_indexes("tool_calls")
+    }
 
     command.downgrade(config, "base")
 

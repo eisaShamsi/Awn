@@ -1,4 +1,4 @@
-"""Policy-checked execution of durable, idempotent tool calls."""
+"""Policy-checked enqueueing of approved, durable tool calls."""
 
 from __future__ import annotations
 
@@ -9,15 +9,12 @@ from typing import Protocol
 from uuid import UUID
 
 from awn.application.approvals import ApprovalService
-from awn.application.conversations import ConversationService
 from awn.application.identity import IdentityRepository
 from awn.application.runs import RunService
 from awn.domain.approvals import ApprovalStatus
-from awn.domain.runs import PlanStep, Run, RunStatus
-from awn.domain.tasks import Task
-from awn.domain.tool_calls import ToolCall, ToolCallStatus
+from awn.domain.runs import PlanStep, Run
+from awn.domain.tool_calls import ToolCall
 from awn.policy.engine import ActionRequest, AutonomyLevel, PolicyEngine, PolicyOutcome
-from awn.tools.contracts import ToolContext
 from awn.tools.registry import ToolRegistry, ToolRegistryError
 
 logger = logging.getLogger(__name__)
@@ -34,6 +31,7 @@ class ToolCallRepository(Protocol):
         allowed_step_ids: frozenset[UUID],
         *,
         started_at: datetime,
+        max_attempts: int,
     ) -> Iterable[ToolCall] | None: ...
 
     def list(
@@ -44,28 +42,6 @@ class ToolCallRepository(Protocol):
         run_id: UUID,
     ) -> Iterable[ToolCall] | None: ...
 
-    def succeed(
-        self,
-        owner_id: UUID,
-        workspace_id: UUID,
-        conversation_id: UUID,
-        call_id: UUID,
-        output: dict[str, object],
-        *,
-        completed_at: datetime,
-    ) -> Run | None: ...
-
-    def fail(
-        self,
-        owner_id: UUID,
-        workspace_id: UUID,
-        conversation_id: UUID,
-        call_id: UUID,
-        error_code: str,
-        *,
-        completed_at: datetime,
-    ) -> Run | None: ...
-
 
 class ExecutionService:
     def __init__(
@@ -74,17 +50,18 @@ class ExecutionService:
         identity_repository: IdentityRepository,
         runs: RunService,
         approvals: ApprovalService,
-        conversations: ConversationService,
         registry: ToolRegistry,
         policy: PolicyEngine,
+        *,
+        max_attempts: int,
     ) -> None:
         self._repository = repository
         self._identity_repository = identity_repository
         self._runs = runs
         self._approvals = approvals
-        self._conversations = conversations
         self._registry = registry
         self._policy = policy
+        self._max_attempts = max_attempts
 
     def _owner_id(self) -> UUID | None:
         state = self._identity_repository.current()
@@ -138,18 +115,9 @@ class ExecutionService:
             approval_id,
             frozenset(step.id for step in action_steps),
             started_at=datetime.now(UTC),
+            max_attempts=self._max_attempts,
         )
-        if calls is None:
-            return self._runs.get(workspace_id, conversation_id, run_id)
-
-        current_run: Run | None = run
-        for call in calls:
-            if call.status is ToolCallStatus.SUCCEEDED:
-                continue
-            current_run = self._execute_call(owner_id, run, call)
-            if current_run is None or current_run.status is RunStatus.FAILED:
-                break
-        return current_run
+        return self._runs.get(workspace_id, conversation_id, run_id) if calls is not None else run
 
     def _all_actions_allowed(self, run: Run, steps: tuple[PlanStep, ...]) -> bool:
         for step in steps:
@@ -180,63 +148,3 @@ class ExecutionService:
             if decision.outcome is not PolicyOutcome.ALLOW:
                 return False
         return True
-
-    def _execute_call(self, owner_id: UUID, run: Run, call: ToolCall) -> Run | None:
-        context = ToolContext(
-            owner_id=owner_id,
-            workspace_id=run.workspace_id,
-            conversation_id=run.conversation_id,
-            run_id=run.id,
-            trace_id=run.trace_id,
-            tool_call_id=call.id,
-            idempotency_key=call.idempotency_key,
-        )
-        try:
-            output = self._registry.execute(
-                call.tool_name,
-                call.operation,
-                call.input,
-                context,
-            )
-            output_data = output.model_dump(mode="json")
-            completed = self._repository.succeed(
-                owner_id,
-                run.workspace_id,
-                run.conversation_id,
-                call.id,
-                output_data,
-                completed_at=datetime.now(UTC),
-            )
-            self._add_success_message(run, output)
-            return completed
-        except Exception as error:
-            logger.warning(
-                "Tool call %s failed (%s)",
-                call.id,
-                type(error).__name__,
-            )
-            failed = self._repository.fail(
-                owner_id,
-                run.workspace_id,
-                run.conversation_id,
-                call.id,
-                "TOOL_EXECUTION_FAILED",
-                completed_at=datetime.now(UTC),
-            )
-            self._conversations.add_assistant_message(
-                run.workspace_id,
-                run.conversation_id,
-                "تعذر تنفيذ الأداة المصرح بها. حُفظ الفشل دون ادعاء نجاح أو تكرار الأثر.",
-            )
-            return failed
-
-    def _add_success_message(self, run: Run, output: object) -> None:
-        if isinstance(output, Task):
-            message = f"تم إنشاء المهمة «{output.title}» داخل مساحة العمل بنجاح."
-        else:
-            message = "تم تنفيذ الأداة المصرح بها والتحقق من نتيجتها."
-        self._conversations.add_assistant_message(
-            run.workspace_id,
-            run.conversation_id,
-            message,
-        )

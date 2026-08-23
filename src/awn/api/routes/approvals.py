@@ -4,7 +4,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
-from awn.api.dependencies import ApprovalServiceDependency, ExecutionServiceDependency
+from awn.api.dependencies import (
+    ApprovalServiceDependency,
+    ExecutionServiceDependency,
+    WorkerServiceDependency,
+)
 from awn.domain.approvals import (
     ApprovalDecision,
     ApprovalDecisionCommand,
@@ -41,6 +45,7 @@ def decide_approval(
     background_tasks: BackgroundTasks,
     service: ApprovalServiceDependency,
     execution: ExecutionServiceDependency,
+    worker: WorkerServiceDependency,
 ) -> ApprovalRequest:
     result = service.decide(
         workspace_id,
@@ -76,4 +81,5 @@ def decide_approval(
             run_id,
             approval_id,
         )
+        background_tasks.add_task(worker.run_until_idle)
     return result.approval

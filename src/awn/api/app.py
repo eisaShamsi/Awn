@@ -15,8 +15,10 @@ from awn.application.identity import IdentityService
 from awn.application.orchestrator import OrchestratorService
 from awn.application.runs import RunService
 from awn.application.tasks import TaskService
+from awn.application.worker import WorkerService
 from awn.config import Settings, get_settings
 from awn.infrastructure.database import Database
+from awn.infrastructure.filesystem import SafeWorkspaceFiles
 from awn.infrastructure.persistence.approvals import SqlAlchemyApprovalRepository
 from awn.infrastructure.persistence.conversations import SqlAlchemyConversationRepository
 from awn.infrastructure.persistence.identity import SqlAlchemyIdentityRepository
@@ -24,6 +26,7 @@ from awn.infrastructure.persistence.runs import SqlAlchemyRunRepository
 from awn.infrastructure.persistence.tasks import SqlAlchemyTaskRepository
 from awn.infrastructure.persistence.tool_calls import SqlAlchemyToolCallRepository
 from awn.policy.engine import PolicyEngine
+from awn.tools.files import build_file_create_tool
 from awn.tools.registry import ToolRegistry
 from awn.tools.tasks import build_task_create_tool
 
@@ -73,7 +76,13 @@ def create_app(
         identity_repository,
     )
     app.state.policy_engine = PolicyEngine()
-    app.state.tool_registry = ToolRegistry([build_task_create_tool(app.state.task_service)])
+    app.state.workspace_files = SafeWorkspaceFiles(resolved_settings.workspace_files_root)
+    app.state.tool_registry = ToolRegistry(
+        [
+            build_task_create_tool(app.state.task_service),
+            build_file_create_tool(app.state.workspace_files),
+        ]
+    )
     app.state.orchestrator_service = OrchestratorService(
         app.state.run_service,
         app.state.conversation_service,
@@ -82,14 +91,21 @@ def create_app(
         app.state.tool_registry,
         app.state.policy_engine,
     )
+    tool_call_repository = SqlAlchemyToolCallRepository(resolved_database.session_factory)
     app.state.execution_service = ExecutionService(
-        SqlAlchemyToolCallRepository(resolved_database.session_factory),
+        tool_call_repository,
         identity_repository,
         app.state.run_service,
         app.state.approval_service,
-        app.state.conversation_service,
         app.state.tool_registry,
         app.state.policy_engine,
+        max_attempts=resolved_settings.worker_max_attempts,
+    )
+    app.state.worker_service = WorkerService(
+        tool_call_repository,
+        app.state.conversation_service,
+        app.state.tool_registry,
+        lease_seconds=resolved_settings.worker_lease_seconds,
     )
 
     app.include_router(health.router)

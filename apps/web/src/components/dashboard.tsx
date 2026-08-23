@@ -57,6 +57,14 @@ const APPROVAL_LABELS: Record<ApprovalRequest["status"], string> = {
   consumed: "استُخدمت الموافقة",
 };
 
+const TOOL_STATUS_LABELS: Record<ToolCall["status"], string> = {
+  pending: "في طابور التنفيذ",
+  executing: "قيد التنفيذ",
+  succeeded: "نجح",
+  failed: "فشل",
+  cancelled: "أُلغي",
+};
+
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("ar-AE", {
     hour: "2-digit",
@@ -695,15 +703,27 @@ export function Dashboard() {
                           <span className="eyebrow">سجل الأداة</span>
                           <h3 dir="ltr">{call.tool_name}.{call.operation}</h3>
                         </div>
-                        <span className="count-badge">{call.status}</span>
+                        <span className="count-badge">{TOOL_STATUS_LABELS[call.status]}</span>
                       </header>
                       <p>
                         {call.status === "succeeded"
                           ? "اكتمل التنفيذ وحُفظت النتيجة بنجاح."
                           : call.status === "failed"
-                            ? "فشل التنفيذ وحُفظ رمز الخطأ دون ادعاء النجاح."
-                            : "يجري تنفيذ الإجراء المصرح به."}
+                            ? "فشل التنفيذ بعد المحاولات المسموحة، وحُفظ رمز الخطأ دون ادعاء النجاح."
+                            : call.status === "pending"
+                              ? "حُفظ الإجراء في الطابور الدائم وينتظر العامل أو موعد إعادة المحاولة."
+                              : call.status === "cancelled"
+                                ? "أُلغي هذا الإجراء قبل تنفيذه."
+                                : "حصل العامل على مهلة التنفيذ ويجري تشغيل الإجراء المصرح به."}
                       </p>
+                      {typeof call.output?.path === "string" && (
+                        <p>
+                          الملف: <code dir="ltr">{call.output.path}</code>
+                        </p>
+                      )}
+                      <small>
+                        المحاولة {call.attempt_count} من {call.max_attempts}
+                      </small>
                       <code dir="ltr">{call.idempotency_key}</code>
                     </section>
                   ))}

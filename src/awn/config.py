@@ -1,9 +1,10 @@
 """Application configuration loaded from the environment."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +29,10 @@ class Settings(BaseSettings):
     openai_model: str | None = None
     openai_api_key: SecretStr | None = None
     database_url: SecretStr = SecretStr("postgresql+psycopg://awn:awn@localhost:5432/awn")
+    workspace_files_root: Path = Path("data/workspaces")
+    worker_poll_seconds: float = Field(default=1.0, gt=0, le=60)
+    worker_lease_seconds: int = Field(default=30, ge=5, le=3_600)
+    worker_max_attempts: int = Field(default=3, ge=1, le=10)
 
     @model_validator(mode="after")
     def require_openai_configuration(self) -> Self:
