@@ -7,7 +7,8 @@ from fastapi import FastAPI
 
 from awn import __version__
 from awn.agent.gateway import ModelGateway, build_model_gateway
-from awn.api.routes import conversations, health, identity, runs, tasks
+from awn.api.routes import approvals, conversations, health, identity, runs, tasks
+from awn.application.approvals import ApprovalService
 from awn.application.conversations import ConversationService
 from awn.application.identity import IdentityService
 from awn.application.orchestrator import OrchestratorService
@@ -15,6 +16,7 @@ from awn.application.runs import RunService
 from awn.application.tasks import TaskService
 from awn.config import Settings, get_settings
 from awn.infrastructure.database import Database
+from awn.infrastructure.persistence.approvals import SqlAlchemyApprovalRepository
 from awn.infrastructure.persistence.conversations import SqlAlchemyConversationRepository
 from awn.infrastructure.persistence.identity import SqlAlchemyIdentityRepository
 from awn.infrastructure.persistence.runs import SqlAlchemyRunRepository
@@ -57,10 +59,15 @@ def create_app(
         run_repository,
         identity_repository,
     )
+    app.state.approval_service = ApprovalService(
+        SqlAlchemyApprovalRepository(resolved_database.session_factory),
+        identity_repository,
+    )
     app.state.orchestrator_service = OrchestratorService(
         app.state.run_service,
         app.state.conversation_service,
         resolved_gateway,
+        app.state.approval_service,
     )
     app.state.task_service = TaskService(
         SqlAlchemyTaskRepository(resolved_database.session_factory)
@@ -70,5 +77,6 @@ def create_app(
     app.include_router(identity.router, prefix=resolved_settings.api_prefix)
     app.include_router(conversations.router, prefix=resolved_settings.api_prefix)
     app.include_router(runs.router, prefix=resolved_settings.api_prefix)
+    app.include_router(approvals.router, prefix=resolved_settings.api_prefix)
     app.include_router(tasks.router, prefix=resolved_settings.api_prefix)
     return app

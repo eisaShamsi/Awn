@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from awn.agent.gateway import ModelGateway, ModelRequest
 from awn.agent.planning import OrchestrationDecision, OrchestrationKind
+from awn.application.approvals import ApprovalService
 from awn.application.conversations import ConversationService
 from awn.application.runs import RunService
 from awn.domain.conversations import Message, MessageRole
@@ -54,10 +55,12 @@ class OrchestratorService:
         runs: RunService,
         conversations: ConversationService,
         gateway: ModelGateway,
+        approvals: ApprovalService,
     ) -> None:
         self._runs = runs
         self._conversations = conversations
         self._gateway = gateway
+        self._approvals = approvals
 
     async def plan(
         self,
@@ -140,7 +143,17 @@ class OrchestratorService:
         )
         risk = max((step.risk for step in steps), key=_RISK_ORDER.__getitem__)
         ready = planning.model_copy(update={"risk": risk}).transition_to(RunStatus.READY)
-        return self._runs.save(ready, steps)
+        saved = self._runs.save(ready, steps)
+        if saved is None:
+            return None
+        if any(step.requires_approval for step in steps):
+            approval = self._approvals.request_for_plan(saved, steps)
+            if approval is None:
+                denied = saved.model_copy(
+                    update={"error_code": "APPROVAL_REQUEST_SAVE_FAILED"}
+                ).transition_to(RunStatus.DENIED)
+                return self._runs.save(denied)
+        return self._runs.get(saved.workspace_id, saved.conversation_id, saved.id)
 
     def _fail(
         self,

@@ -259,6 +259,24 @@ button { cursor: pointer; }
 .step-copy small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .plan-card > p { margin: 0; color: var(--muted); font-size: 10px; }
 
+.approval-card { margin: 10px 42px 18px; padding: 17px; border: 1px solid #ddc999; border-radius: 14px; background: #fffaf0; }
+.approval-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.approval-card h3 { margin: 4px 0 0; font-size: 14px; }
+.approval-card > p { margin: 14px 0 12px; color: var(--ink); font-size: 11px; line-height: 1.7; }
+.approval-card > small { display: block; margin-top: 11px; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.approval-approved { border-color: #b8d6c2; background: #f2faf5; }
+.approval-rejected, .approval-expired, .approval-invalidated { border-color: #e4c2c0; background: #fff5f4; }
+.risk-badge { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; }
+.risk-low { color: var(--green); background: var(--green-soft); }
+.risk-medium { color: #77570a; background: #f5e8bf; }
+.risk-high, .risk-critical { color: var(--danger); background: #f8e8e7; }
+.fingerprint-row { display: grid; gap: 6px; padding: 10px; border: 1px solid rgba(119,87,10,.15); border-radius: 9px; background: rgba(255,255,255,.72); }
+.fingerprint-row span { color: var(--muted); font-size: 9px; font-weight: 700; }
+.fingerprint-row code { overflow-wrap: anywhere; color: #67521e; font-family: Consolas, monospace; font-size: 9px; line-height: 1.6; }
+.approval-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 14px; }
+.reject-button { border: 1px solid #d9adab; border-radius: 10px; padding: 11px 14px; color: var(--danger); background: #fff; font-weight: 700; }
+.reject-button:disabled { opacity: .55; cursor: not-allowed; }
+
 .chat-empty { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--muted); }
 .chat-empty.full { flex: 1; min-height: 580px; }
 .chat-empty h2, .chat-empty h3 { margin: 14px 0 6px; color: var(--ink); }
@@ -332,7 +350,7 @@ button { cursor: pointer; }
   .conversation-list { max-height: 250px; }
   .chat-panel { min-height: 590px; }
   .message-body { max-width: 86%; }
-  .plan-card { margin-inline: 0; }
+  .plan-card, .approval-card { margin-inline: 0; }
   .onboarding-shell { grid-template-columns: 1fr; }
   .onboarding-copy { min-height: 44vh; padding: 40px 28px; }
   .onboarding-copy .brand-lockup { margin-bottom: 45px; }

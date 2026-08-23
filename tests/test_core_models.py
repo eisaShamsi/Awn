@@ -7,8 +7,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from awn.agent.planning import OrchestrationDecision
+from awn.domain.approvals import action_fingerprint
 from awn.domain.conversations import MessagePart, MessagePartType
-from awn.domain.runs import Run, RunRisk, RunStatus
+from awn.domain.runs import PlanStep, Run, RunRisk, RunStatus
 from awn.infrastructure.database import Database
 from awn.infrastructure.persistence.models import (
     ConversationRecord,
@@ -63,6 +64,37 @@ def test_run_rejects_naive_timestamps_and_invalid_autonomy() -> None:
     invalid_run["autonomy_level"] = 4
     with pytest.raises(ValidationError, match="less than or equal to 3"):
         Run.model_validate(invalid_run)
+
+
+def test_approval_fingerprint_changes_with_the_reviewed_action() -> None:
+    now = datetime(2026, 8, 23, 8, tzinfo=UTC)
+    run = (
+        _new_run(now)
+        .transition_to(RunStatus.PLANNING, at=now)
+        .transition_to(RunStatus.READY, at=now)
+    )
+    step = PlanStep(
+        id=uuid4(),
+        run_id=run.id,
+        position=0,
+        title="إنشاء ملف داخل المساحة الآمنة",
+        risk=RunRisk.MEDIUM,
+        requires_approval=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+    original = action_fingerprint(run, [step], operation="plan.execute")
+    repeated = action_fingerprint(run, [step], operation="plan.execute")
+    changed = action_fingerprint(
+        run,
+        [step.model_copy(update={"title": "إنشاء ملف آخر"})],
+        operation="plan.execute",
+    )
+
+    assert len(original) == 64
+    assert repeated == original
+    assert changed != original
 
 
 def test_message_parts_are_structured_and_non_empty() -> None:

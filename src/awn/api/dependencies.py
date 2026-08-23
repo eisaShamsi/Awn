@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from awn.application.approvals import ApprovalService
 from awn.application.conversations import ConversationService
 from awn.application.identity import IdentityService
 from awn.application.orchestrator import OrchestratorService
@@ -33,6 +34,10 @@ def get_orchestrator_service(request: Request) -> OrchestratorService:
     return request.app.state.orchestrator_service
 
 
+def get_approval_service(request: Request) -> ApprovalService:
+    return request.app.state.approval_service
+
+
 def get_app_settings(request: Request) -> Settings:
     return request.app.state.settings
 
@@ -52,5 +57,6 @@ OrchestratorServiceDependency = Annotated[
     OrchestratorService,
     Depends(get_orchestrator_service),
 ]
+ApprovalServiceDependency = Annotated[ApprovalService, Depends(get_approval_service)]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
 DatabaseDependency = Annotated[Database, Depends(get_database)]

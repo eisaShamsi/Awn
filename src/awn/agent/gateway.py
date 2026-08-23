@@ -69,6 +69,26 @@ class FakeModelGateway:
     ) -> StructuredModelResponse[StructuredOutput]:
         current_request = request.input.rsplit("الطلب الحالي:\n", maxsplit=1)[-1].strip()
         excerpt = current_request[:180]
+        normalized_request = current_request.casefold()
+        approval_keywords = (
+            "أنشئ ملف",
+            "اكتب ملف",
+            "أرسل",
+            "انشر",
+            "احذف",
+            "create file",
+            "write file",
+            "send",
+            "publish",
+            "delete",
+        )
+        high_risk_keywords = ("أرسل", "انشر", "احذف", "send", "publish", "delete")
+        needs_approval = any(keyword in normalized_request for keyword in approval_keywords)
+        effect_risk = (
+            "high"
+            if any(keyword in normalized_request for keyword in high_risk_keywords)
+            else "medium"
+        )
 
         if len(current_request) < 10:
             data: dict[str, object] = {
@@ -94,8 +114,8 @@ class FakeModelGateway:
                     },
                     {
                         "title": "إعداد الناتج المقترح",
-                        "risk": "low",
-                        "requires_approval": False,
+                        "risk": effect_risk if needs_approval else "low",
+                        "requires_approval": needs_approval,
                     },
                     {
                         "title": "مراجعة الناتج والتحقق من اكتماله",

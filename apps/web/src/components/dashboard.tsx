@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError, apiRequest } from "@/lib/api";
 import type {
+  ApprovalRequest,
   Conversation,
   Message,
   PlanStep,
@@ -45,6 +46,15 @@ const RISK_LABELS: Record<PlanStep["risk"], string> = {
   critical: "حرج",
 };
 
+const APPROVAL_LABELS: Record<ApprovalRequest["status"], string> = {
+  pending: "بانتظار قرارك",
+  approved: "تمت الموافقة",
+  rejected: "مرفوض",
+  expired: "منتهي الصلاحية",
+  invalidated: "أُبطل بعد تغيير الخطة",
+  consumed: "استُخدمت الموافقة",
+};
+
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("ar-AE", {
     hour: "2-digit",
@@ -74,6 +84,7 @@ export function Dashboard() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -83,6 +94,7 @@ export function Dashboard() {
       setMessages([]);
       setRuns([]);
       setPlanSteps([]);
+      setApprovals([]);
       return;
     }
     const base = `workspaces/${nextWorkspaceId}/conversations/${nextConversationId}`;
@@ -93,10 +105,14 @@ export function Dashboard() {
     setMessages(nextMessages);
     setRuns(nextRuns);
     const latestRun = nextRuns[0];
-    const nextPlanSteps = latestRun
-      ? await apiRequest<PlanStep[]>(`${base}/runs/${latestRun.id}/steps`)
-      : [];
+    const [nextPlanSteps, nextApprovals] = latestRun
+      ? await Promise.all([
+          apiRequest<PlanStep[]>(`${base}/runs/${latestRun.id}/steps`),
+          apiRequest<ApprovalRequest[]>(`${base}/runs/${latestRun.id}/approvals`),
+        ])
+      : [[], []];
     setPlanSteps(nextPlanSteps);
+    setApprovals(nextApprovals);
   }, []);
 
   const loadWorkspace = useCallback(async (nextWorkspaceId: string) => {
@@ -113,6 +129,7 @@ export function Dashboard() {
       setMessages([]);
       setRuns([]);
       setPlanSteps([]);
+      setApprovals([]);
     }
   }, [loadConversation]);
 
@@ -170,6 +187,7 @@ export function Dashboard() {
     setMessages([]);
     setRuns([]);
     setPlanSteps([]);
+    setApprovals([]);
     setNotice(null);
     try {
       await loadWorkspace(nextWorkspaceId);
@@ -183,6 +201,7 @@ export function Dashboard() {
     setMessages([]);
     setRuns([]);
     setPlanSteps([]);
+    setApprovals([]);
     setNotice(null);
     try {
       await loadConversation(workspaceId, nextConversationId);
@@ -234,6 +253,7 @@ export function Dashboard() {
       setMessages([]);
       setRuns([]);
       setPlanSteps([]);
+      setApprovals([]);
       form.reset();
     } catch (error) {
       setNotice(errorMessage(error));
@@ -263,8 +283,41 @@ export function Dashboard() {
       });
       setRuns((current) => [run, ...current]);
       setPlanSteps([]);
+      setApprovals([]);
     } catch (error) {
       setNotice(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decideApproval(
+    approval: ApprovalRequest,
+    decision: "approve" | "reject",
+  ) {
+    if (!workspaceId || !conversationId) return;
+    setBusy(true);
+    setNotice(null);
+    const path =
+      `workspaces/${workspaceId}/conversations/${conversationId}` +
+      `/runs/${approval.run_id}/approvals/${approval.id}/decision`;
+    try {
+      await apiRequest<ApprovalRequest>(path, {
+        method: "POST",
+        body: JSON.stringify({
+          decision,
+          action_fingerprint: approval.action_fingerprint,
+        }),
+      });
+      await loadConversation(workspaceId, conversationId);
+      setNotice(
+        decision === "approve"
+          ? "سُجلت موافقتك على الخطة المعروضة دون تنفيذ أي أداة بعد."
+          : "رُفض الطلب وأُلغي هذا التشغيل.",
+      );
+    } catch (error) {
+      setNotice(errorMessage(error));
+      await loadConversation(workspaceId, conversationId).catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -520,7 +573,7 @@ export function Dashboard() {
                       يجري إعداد إجابة أو خطة منظمة قابلة للمراجعة.
                     </div>
                   )}
-                  {runs[0]?.status === "ready" && planSteps.length > 0 && (
+                  {planSteps.length > 0 && (
                     <section className="plan-card" aria-label="الخطة المقترحة">
                       <header>
                         <div>
@@ -544,6 +597,59 @@ export function Dashboard() {
                         ))}
                       </ol>
                       <p>هذه خطة فقط؛ لم ينفذ عَوْن أي إجراء بعد.</p>
+                    </section>
+                  )}
+                  {approvals[0] && (
+                    <section
+                      className={`approval-card approval-${approvals[0].status}`}
+                      aria-label="طلب الموافقة"
+                    >
+                      <header>
+                        <div>
+                          <span className="eyebrow">طلب موافقة</span>
+                          <h3>{APPROVAL_LABELS[approvals[0].status]}</h3>
+                        </div>
+                        <span className={`risk-badge risk-${approvals[0].risk}`}>
+                          مخاطر {RISK_LABELS[approvals[0].risk]}
+                        </span>
+                      </header>
+                      <p>{approvals[0].summary}</p>
+                      <div className="fingerprint-row">
+                        <span>بصمة الإجراء</span>
+                        <code dir="ltr">{approvals[0].action_fingerprint}</code>
+                      </div>
+                      {approvals[0].status === "pending" ? (
+                        <>
+                          <small>
+                            تنتهي صلاحية الطلب عند {formatTime(approvals[0].expires_at)}.
+                            الموافقة مرتبطة بهذه الخطة والبصمة فقط.
+                          </small>
+                          <div className="approval-actions">
+                            <button
+                              className="reject-button"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void decideApproval(approvals[0], "reject")}
+                            >
+                              رفض وإلغاء التشغيل
+                            </button>
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void decideApproval(approvals[0], "approve")}
+                            >
+                              مراجعة واعتماد الخطة
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <small>
+                          {approvals[0].status === "approved"
+                            ? "الموافقة مسجلة، والخطة جاهزة لمرحلة التنفيذ اللاحقة."
+                            : "لن يستخدم عَوْن هذا الطلب في أي تنفيذ."}
+                        </small>
+                      )}
                     </section>
                   )}
                 </div>

@@ -20,7 +20,12 @@ function isAllowedPath(path: string[]): boolean {
   if (path.length === 3 || path.length === 4) return true;
   if (path[4] === "messages") return path.length === 5;
   if (path[4] !== "runs") return false;
-  return path.length === 5 || path.length === 6 || (path.length === 7 && path[6] === "steps");
+  return (
+    path.length === 5 ||
+    path.length === 6 ||
+    (path.length === 7 && (path[6] === "steps" || path[6] === "approvals")) ||
+    (path.length === 9 && path[6] === "approvals" && path[8] === "decision")
+  );
 }
 
 function upstreamUrl(path: string[]): URL | null {

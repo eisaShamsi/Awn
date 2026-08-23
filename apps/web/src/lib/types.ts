@@ -1,6 +1,13 @@
 export type WorkspaceStatus = "active" | "archived";
 export type ConversationStatus = "active" | "archived";
 export type RunRisk = "low" | "medium" | "high" | "critical";
+export type ApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "invalidated"
+  | "consumed";
 export type RunStatus =
   | "received"
   | "planning"
@@ -89,4 +96,18 @@ export interface PlanStep {
   requires_approval: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface ApprovalRequest {
+  id: string;
+  run_id: string;
+  operation: string;
+  summary: string;
+  risk: RunRisk;
+  action_fingerprint: string;
+  status: ApprovalStatus;
+  decision_note: string | null;
+  requested_at: string;
+  expires_at: string;
+  decided_at: string | null;
 }

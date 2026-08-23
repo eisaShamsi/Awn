@@ -16,6 +16,7 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
     inspector = inspect(engine)
     assert {
         "alembic_version",
+        "approvals",
         "conversations",
         "messages",
         "plan_steps",
@@ -29,6 +30,9 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
     }
     assert {"ix_runs_workspace_status", "ix_runs_conversation_created"} == {
         index["name"] for index in inspector.get_indexes("runs")
+    }
+    assert {"ix_approvals_expires_at", "ix_approvals_run_status"} == {
+        index["name"] for index in inspector.get_indexes("approvals")
     }
 
     command.downgrade(config, "base")

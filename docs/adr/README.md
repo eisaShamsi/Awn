@@ -11,6 +11,7 @@
 | [ADR-005](ADR-005-secrets.md) | إدارة الأسرار والاتصالات | مقبول |
 | [ADR-006](ADR-006-first-integration.md) | GitHub بوصفه أول تكامل خارجي | مقبول |
 | [ADR-007](ADR-007-memory-policy.md) | الذاكرة والاحتفاظ والحذف | مقبول |
+| [ADR-008](ADR-008-approval-fingerprint.md) | الموافقة المرتبطة ببصمة الإجراء | مقبول |
 
 ## حالات القرار
 

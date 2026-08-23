@@ -225,6 +225,12 @@ class RunRecord(Base):
         passive_deletes=True,
         order_by="PlanStepRecord.position",
     )
+    approvals: Mapped[list["ApprovalRecord"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ApprovalRecord.requested_at",
+    )
 
 
 class PlanStepRecord(Base):
@@ -261,6 +267,48 @@ class PlanStepRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     run: Mapped[RunRecord] = relationship(back_populates="steps")
+
+
+class ApprovalRecord(Base):
+    __tablename__ = "approvals"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'expired', 'invalidated', 'consumed')",
+            name="ck_approvals_status",
+        ),
+        CheckConstraint(
+            "risk IN ('low', 'medium', 'high', 'critical')",
+            name="ck_approvals_risk",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "action_fingerprint",
+            name="uq_approvals_run_fingerprint",
+        ),
+        Index("ix_approvals_run_status", "run_id", "status"),
+        Index("ix_approvals_expires_at", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    operation: Mapped[str] = mapped_column(String(100), nullable=False)
+    summary: Mapped[str] = mapped_column(String(500), nullable=False)
+    risk: Mapped[str] = mapped_column(String(16), nullable=False)
+    action_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    run: Mapped[RunRecord] = relationship(back_populates="approvals")
 
 
 class TaskRecord(Base):

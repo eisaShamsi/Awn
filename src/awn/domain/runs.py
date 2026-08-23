@@ -75,7 +75,9 @@ ALLOWED_RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
             RunStatus.CANCELLED,
         }
     ),
-    RunStatus.AWAITING_APPROVAL: frozenset({RunStatus.EXECUTING, RunStatus.CANCELLED}),
+    RunStatus.AWAITING_APPROVAL: frozenset(
+        {RunStatus.READY, RunStatus.EXECUTING, RunStatus.CANCELLED}
+    ),
     RunStatus.EXECUTING: frozenset({RunStatus.VERIFYING, RunStatus.FAILED, RunStatus.CANCELLED}),
     RunStatus.VERIFYING: frozenset(
         {
