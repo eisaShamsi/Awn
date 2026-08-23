@@ -1,0 +1,4 @@
+interface:
+  display_name: "مجلس تدقيق عَوْن"
+  short_description: "بوابة المفهوم والتصميم والبناء والسلامة"
+  default_prompt: "Use $awn-audit-council to review this Awn change against its owner-approved Function Concept."

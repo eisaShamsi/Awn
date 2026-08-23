@@ -15,6 +15,7 @@
 | [ADR-009](ADR-009-tool-registry-execution.md) | سجل الأدوات والتنفيذ المصرح القابل للإعادة | مقبول |
 | [ADR-010](ADR-010-leased-worker-retries.md) | حجز العامل وإعادة المحاولة المحدودة | مقبول |
 | [ADR-011](ADR-011-safe-workspace-files.md) | حدود ملفات مساحة العمل الآمنة | مقبول |
+| [ADR-012](ADR-012-function-concept-audit-gate.md) | بوابة مفهوم الوظيفة ومجلس التدقيق | مقبول |
 
 ## حالات القرار
 
