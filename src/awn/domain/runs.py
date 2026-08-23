@@ -39,6 +39,13 @@ class PlanStepStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class RunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_message_id: UUID
+    autonomy_level: int = Field(default=0, ge=0, le=3)
+
+
 TERMINAL_RUN_STATUSES = frozenset(
     {
         RunStatus.SUCCEEDED,

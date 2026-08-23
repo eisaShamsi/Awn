@@ -12,9 +12,13 @@ build/
 # Virtual environments and local settings
 .venv/
 venv/
+node_modules/
+.next/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
+!apps/web/.env.local.example
 
 # Editors and operating systems
 .idea/

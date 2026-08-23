@@ -4,6 +4,9 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from awn.application.conversations import ConversationService
+from awn.application.identity import IdentityService
+from awn.application.runs import RunService
 from awn.application.tasks import TaskService
 from awn.config import Settings
 from awn.infrastructure.database import Database
@@ -11,6 +14,18 @@ from awn.infrastructure.database import Database
 
 def get_task_service(request: Request) -> TaskService:
     return request.app.state.task_service
+
+
+def get_identity_service(request: Request) -> IdentityService:
+    return request.app.state.identity_service
+
+
+def get_conversation_service(request: Request) -> ConversationService:
+    return request.app.state.conversation_service
+
+
+def get_run_service(request: Request) -> RunService:
+    return request.app.state.run_service
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -22,5 +37,11 @@ def get_database(request: Request) -> Database:
 
 
 TaskServiceDependency = Annotated[TaskService, Depends(get_task_service)]
+IdentityServiceDependency = Annotated[IdentityService, Depends(get_identity_service)]
+ConversationServiceDependency = Annotated[
+    ConversationService,
+    Depends(get_conversation_service),
+]
+RunServiceDependency = Annotated[RunService, Depends(get_run_service)]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
 DatabaseDependency = Annotated[Database, Depends(get_database)]

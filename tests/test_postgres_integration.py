@@ -3,9 +3,12 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete
+from fastapi.testclient import TestClient
+from sqlalchemy import delete, func, select
 
+from awn.api.app import create_app
 from awn.application.tasks import TaskService
+from awn.config import Settings
 from awn.domain.tasks import TaskCreate, TaskPriority, TaskStatus, TaskUpdate
 from awn.infrastructure.database import Database
 from awn.infrastructure.persistence.models import (
@@ -139,4 +142,67 @@ def test_core_execution_graph_round_trip_on_postgresql() -> None:
             owner = session.get(UserRecord, user_id)
             if owner is not None:
                 session.delete(owner)
+        database.dispose()
+
+
+@pytest.mark.skipif(not POSTGRES_URL, reason="AWN_TEST_POSTGRES_URL is not configured")
+def test_core_api_flow_on_postgresql() -> None:
+    assert POSTGRES_URL is not None
+    database = Database(POSTGRES_URL)
+    created_user_id: UUID | None = None
+
+    try:
+        with database.session_factory() as session:
+            existing_users = session.scalar(select(func.count()).select_from(UserRecord))
+        if existing_users:
+            pytest.skip("PostgreSQL integration database already contains a user")
+
+        app = create_app(
+            Settings(
+                environment="test",
+                model_provider="fake",
+                database_url=POSTGRES_URL,
+            ),
+            database=database,
+        )
+        with TestClient(app) as client:
+            setup_response = client.post(
+                "/api/v1/setup",
+                json={"display_name": "PostgreSQL API", "workspace_name": "Integration"},
+            )
+            assert setup_response.status_code == 200
+            setup = setup_response.json()
+            created_user_id = UUID(setup["user"]["id"])
+            workspace_id = setup["workspace"]["id"]
+
+            conversation_response = client.post(
+                f"/api/v1/workspaces/{workspace_id}/conversations",
+                json={"title": "Persistent API conversation"},
+            )
+            assert conversation_response.status_code == 201
+            conversation_id = conversation_response.json()["id"]
+
+            message_response = client.post(
+                f"/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages",
+                json={"parts": [{"type": "text", "text": "نفذ"}]},
+            )
+            assert message_response.status_code == 201
+            message_id = message_response.json()["id"]
+
+            run_response = client.post(
+                f"/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/runs",
+                json={"request_message_id": message_id, "autonomy_level": 2},
+            )
+            assert run_response.status_code == 201
+            assert run_response.json()["status"] == "received"
+            assert client.get("/ready").json() == {
+                "status": "ready",
+                "database": "postgresql",
+            }
+    finally:
+        if created_user_id is not None:
+            with database.session_factory.begin() as session:
+                owner = session.get(UserRecord, created_user_id)
+                if owner is not None:
+                    session.delete(owner)
         database.dispose()
