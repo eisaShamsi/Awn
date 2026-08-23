@@ -1,4 +1,5 @@
 :root {
+  --font-ui: Calibri, "Segoe UI", Arial, sans-serif;
   --ink: #18231f;
   --muted: #68736e;
   --surface: #ffffff;
@@ -21,7 +22,7 @@ body {
   margin: 0;
   color: var(--ink);
   background: var(--canvas);
-  font-family: Tahoma, "Segoe UI", Arial, sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 
