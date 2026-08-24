@@ -46,8 +46,10 @@ Each reviewer must return one verdict from `PASS`, `PASS_WITH_CONDITIONS`, `BLOC
 
 1. Record the review in `docs/audits/` using `docs/audits/TEMPLATE.md`.
 2. Return every `BLOCK` and every open condition to implementation, then ask the relevant independent role to recheck the fix. `PASS_WITH_CONDITIONS` always yields `REWORK_REQUIRED` until that role changes its verdict to `PASS`.
-3. Apply the aggregation rules in `docs/AUDIT_COUNCIL.md` mechanically. Never average away a hard gate or override a member verdict.
-4. Do not describe work as ready for the owner's trial unless the final result is `READY_FOR_OWNER_TRIAL`.
+3. Apply the aggregation rules in `docs/AUDIT_COUNCIL.md` mechanically. Never average away a hard gate or override a member verdict. Use `READY_FOR_NEXT_PHASE` only for a passing `DESIGN` or `BUILD` gate.
+4. Do not describe work as ready for the owner's trial unless a `HANDOFF` review produces `READY_FOR_OWNER_TRIAL`.
 5. Keep unrun checks and residual risks explicit. Never include secrets, credentials, or sensitive payloads in the report.
 
-The council result authorizes a trial only. It does not constitute the owner's final acceptance of the function.
+`READY_FOR_NEXT_PHASE` authorizes only the next development phase.
+`READY_FOR_OWNER_TRIAL`, issued only at `HANDOFF`, authorizes presenting the build for
+the owner's trial. Neither result constitutes the owner's final acceptance of the function.

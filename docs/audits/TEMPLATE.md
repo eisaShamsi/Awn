@@ -9,7 +9,7 @@
 - **المرحلة:** `CONCEPT | DESIGN | BUILD | HANDOFF`
 - **نطاق التغيير:** وصف موجز
 - **لقطة التغيير:** commit SHA أو قائمة ملفات/قطع أثرية وبصماتها
-- **قرار المجلس:** `AWAITING_OWNER_CONCEPT_APPROVAL | REWORK_REQUIRED | READY_FOR_OWNER_TRIAL`
+- **قرار المجلس:** `AWAITING_OWNER_CONCEPT_APPROVAL | REWORK_REQUIRED | READY_FOR_NEXT_PHASE | READY_FOR_OWNER_TRIAL`
 
 ## الأدلة المشتركة
 

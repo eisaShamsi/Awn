@@ -16,6 +16,7 @@
 | [ADR-010](ADR-010-leased-worker-retries.md) | حجز العامل وإعادة المحاولة المحدودة | مقبول |
 | [ADR-011](ADR-011-safe-workspace-files.md) | حدود ملفات مساحة العمل الآمنة | مقبول |
 | [ADR-012](ADR-012-function-concept-audit-gate.md) | بوابة مفهوم الوظيفة ومجلس التدقيق | مقبول |
+| [ADR-013](ADR-013-durable-run-cancellation.md) | أمر إلغاء دائم وحد الالتزام بالأثر | مقبول |
 
 ## حالات القرار
 
