@@ -151,9 +151,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    tool_call_columns = {
-        column["name"] for column in sa.inspect(bind).get_columns("tool_calls")
-    }
+    tool_call_columns = {column["name"] for column in sa.inspect(bind).get_columns("tool_calls")}
     unsafe = bind.execute(
         sa.text(
             "SELECT "

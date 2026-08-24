@@ -361,9 +361,7 @@ def test_committed_effect_cancellation_reconciles_success_and_conflict(
         "late",
         claimed_at + timedelta(seconds=4),
     )
-    events_before_wrong_worker = len(
-        client.get(f"{run_path}/cancellation").json()["events"]
-    )
+    events_before_wrong_worker = len(client.get(f"{run_path}/cancellation").json()["events"])
     assert (
         repository.succeed(
             leased.owner_id,
@@ -380,8 +378,7 @@ def test_committed_effect_cancellation_reconciles_success_and_conflict(
         is None
     )
     assert (
-        len(client.get(f"{run_path}/cancellation").json()["events"])
-        == events_before_wrong_worker
+        len(client.get(f"{run_path}/cancellation").json()["events"]) == events_before_wrong_worker
     )
     stale_success = repository.succeed(
         leased.owner_id,
@@ -576,9 +573,7 @@ def test_absence_during_reconciliation_never_fences_a_late_original_effect(
     assert client.post(f"{run_path}/cancellation").json()["decision"] == "accepted"
 
     assert (
-        repository.reconcile_expired_cancellations(
-            observed_at=claimed_at + timedelta(seconds=2)
-        )
+        repository.reconcile_expired_cancellations(observed_at=claimed_at + timedelta(seconds=2))
         == 1
     )
     assert client.get(f"{run_path}/cancellation").json()["status"] == "uncertain"
@@ -600,9 +595,7 @@ def test_absence_during_reconciliation_never_fences_a_late_original_effect(
         context,
     )
     assert (
-        repository.reconcile_expired_cancellations(
-            observed_at=claimed_at + timedelta(seconds=3)
-        )
+        repository.reconcile_expired_cancellations(observed_at=claimed_at + timedelta(seconds=3))
         == 1
     )
     assert client.get(f"{run_path}/cancellation").json()["status"] == "completed"
@@ -653,9 +646,7 @@ def test_expired_cancellation_reconciliation_records_a_proven_effect_without_ret
     assert accepted["cancellation"]["status"] == "accepted"
 
     assert (
-        repository.reconcile_expired_cancellations(
-            observed_at=claimed_at + timedelta(seconds=2)
-        )
+        repository.reconcile_expired_cancellations(observed_at=claimed_at + timedelta(seconds=2))
         == 1
     )
     cancellation = client.get(f"{run_path}/cancellation").json()

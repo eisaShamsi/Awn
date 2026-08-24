@@ -805,9 +805,7 @@ def test_restarted_worker_reconciles_post_effect_crash_without_reinvoking_handle
         def forbidden_handler(*_):
             raise AssertionError("a reconciliation worker must not invoke the handler")
 
-        restart_registry = ToolRegistry(
-            [replace(definition, handler=forbidden_handler)]
-        )
+        restart_registry = ToolRegistry([replace(definition, handler=forbidden_handler)])
         restarted_worker = WorkerService(
             SqlAlchemyToolCallRepository(database.session_factory, restart_registry),
             _UnusedConversationService(),  # type: ignore[arg-type]

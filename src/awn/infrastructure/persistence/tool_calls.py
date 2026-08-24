@@ -122,11 +122,7 @@ class SqlAlchemyToolCallRepository:
 
     def _observation_time(self, *causal_times: datetime | None) -> datetime:
         values = [self._clock()]
-        values.extend(
-            aware
-            for value in causal_times
-            if (aware := _aware(value)) is not None
-        )
+        values.extend(aware for value in causal_times if (aware := _aware(value)) is not None)
         return max(values)
 
     @staticmethod
@@ -436,9 +432,7 @@ class SqlAlchemyToolCallRepository:
                 .with_for_update(of=RunCancellationRecord)
             )
             cancellation_step = (
-                self._lock_step(session, call.plan_step_id)
-                if cancellation is not None
-                else None
+                self._lock_step(session, call.plan_step_id) if cancellation is not None else None
             )
             causal_floor = _aware(call.started_at) or _aware(call.updated_at)
             committed_at = self._clock()
@@ -849,8 +843,7 @@ class SqlAlchemyToolCallRepository:
             steps_by_id = {step.id: step for step in locked_steps}
             status = ToolCallStatus(call.status)
             if status is ToolCallStatus.EXECUTING and (
-                call.lease_expires_at is None
-                or _aware(call.lease_expires_at) > observed_at
+                call.lease_expires_at is None or _aware(call.lease_expires_at) > observed_at
             ):
                 return None
             if self._registry is None:
@@ -1093,12 +1086,9 @@ class SqlAlchemyToolCallRepository:
                                         cancellation,
                                         evidence_fingerprint=fingerprint,
                                         evidence_code=(
-                                            CancellationEvidenceCode
-                                            .EVIDENCE_ADDED_TO_OPEN_CONFLICT
+                                            CancellationEvidenceCode.EVIDENCE_ADDED_TO_OPEN_CONFLICT
                                         ),
-                                        source=(
-                                            CancellationEvidenceSource.RECONCILIATION_WORKER
-                                        ),
+                                        source=(CancellationEvidenceSource.RECONCILIATION_WORKER),
                                         observed_at=recorded_at,
                                     )
                                     reconciled += 1
@@ -1134,8 +1124,7 @@ class SqlAlchemyToolCallRepository:
 
                     if (
                         verification is not None
-                        and verification.status
-                        is EffectVerificationStatus.VERIFIED_NO_EFFECT
+                        and verification.status is EffectVerificationStatus.VERIFIED_NO_EFFECT
                     ):
                         fingerprint = _evidence_fingerprint(
                             {
@@ -1163,8 +1152,7 @@ class SqlAlchemyToolCallRepository:
                                     cancellation,
                                     evidence_fingerprint=fingerprint,
                                     evidence_code=(
-                                        CancellationEvidenceCode
-                                        .EVIDENCE_ADDED_TO_OPEN_CONFLICT
+                                        CancellationEvidenceCode.EVIDENCE_ADDED_TO_OPEN_CONFLICT
                                     ),
                                     source=CancellationEvidenceSource.RECONCILIATION_WORKER,
                                     observed_at=recorded_at,

@@ -44,9 +44,7 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
         "effect_committed_at",
         "effect_commit_token",
         "effect_commit_worker_id",
-    }.issubset(
-        {column["name"] for column in inspector.get_columns("tool_calls")}
-    )
+    }.issubset({column["name"] for column in inspector.get_columns("tool_calls")})
     assert {"ix_run_cancellations_status"} == {
         index["name"] for index in inspector.get_indexes("run_cancellations")
     }
