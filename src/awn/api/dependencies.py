@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from awn.application.approvals import ApprovalService
+from awn.application.cancellations import CancellationService
 from awn.application.conversations import ConversationService
 from awn.application.execution import ExecutionService
 from awn.application.identity import IdentityService
@@ -44,6 +45,10 @@ def get_execution_service(request: Request) -> ExecutionService:
     return request.app.state.execution_service
 
 
+def get_cancellation_service(request: Request) -> CancellationService:
+    return request.app.state.cancellation_service
+
+
 def get_worker_service(request: Request) -> WorkerService:
     return request.app.state.worker_service
 
@@ -69,6 +74,10 @@ OrchestratorServiceDependency = Annotated[
 ]
 ApprovalServiceDependency = Annotated[ApprovalService, Depends(get_approval_service)]
 ExecutionServiceDependency = Annotated[ExecutionService, Depends(get_execution_service)]
+CancellationServiceDependency = Annotated[
+    CancellationService,
+    Depends(get_cancellation_service),
+]
 WorkerServiceDependency = Annotated[WorkerService, Depends(get_worker_service)]
 SettingsDependency = Annotated[Settings, Depends(get_app_settings)]
 DatabaseDependency = Annotated[Database, Depends(get_database)]

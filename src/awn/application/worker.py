@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 class WorkerRepository(Protocol):
+    def reconcile_expired_cancellations(self, *, observed_at: datetime) -> int: ...
+
     def claim_next(
         self,
         worker_id: str,
@@ -30,6 +32,16 @@ class WorkerRepository(Protocol):
         claimed_at: datetime,
         lease_seconds: int,
     ) -> LeasedToolCall | None: ...
+
+    def commit_effect(
+        self,
+        owner_id: UUID,
+        workspace_id: UUID,
+        conversation_id: UUID,
+        call_id: UUID,
+        *,
+        worker_id: str,
+    ) -> UUID | None: ...
 
     def succeed(
         self,
@@ -40,7 +52,10 @@ class WorkerRepository(Protocol):
         output: dict[str, object],
         *,
         worker_id: str,
-        completed_at: datetime,
+        expected_idempotency_key: str,
+        expected_input: dict[str, object],
+        effect_commit_token: UUID | None = None,
+        occurred_at: datetime,
     ) -> Run | None: ...
 
     def record_failure(
@@ -54,6 +69,7 @@ class WorkerRepository(Protocol):
         worker_id: str,
         failed_at: datetime,
         retry_at: datetime | None,
+        effect_commit_token: UUID | None = None,
     ) -> tuple[Run, bool] | None: ...
 
 
@@ -81,18 +97,25 @@ class WorkerService:
 
     def run_once(self, *, now: datetime | None = None) -> bool:
         claimed_at = now or datetime.now(UTC)
+        reconciled = self._repository.reconcile_expired_cancellations(
+            observed_at=claimed_at,
+        )
         leased = self._repository.claim_next(
             self._worker_id,
             claimed_at=claimed_at,
             lease_seconds=self._lease_seconds,
         )
         if leased is None:
-            return False
+            return reconciled > 0
 
         call = leased.call
         definition = self._registry.resolve(call.tool_name, call.operation)
         if definition is None or not definition.supports_idempotency:
-            self._terminal_failure(leased, claimed_at, "UNSAFE_OR_UNKNOWN_TOOL")
+            self._terminal_failure(
+                leased,
+                datetime.now(UTC),
+                "UNSAFE_OR_UNKNOWN_TOOL",
+            )
             return True
 
         context = ToolContext(
@@ -104,11 +127,26 @@ class WorkerService:
             tool_call_id=call.id,
             idempotency_key=call.idempotency_key,
         )
+        effect_commit_token: UUID | None = None
         try:
-            output = self._registry.execute(
+            validated_input = self._registry.validate_input(
                 call.tool_name,
                 call.operation,
                 call.input,
+            )
+            effect_commit_token = self._repository.commit_effect(
+                leased.owner_id,
+                leased.run.workspace_id,
+                leased.run.conversation_id,
+                call.id,
+                worker_id=self._worker_id,
+            )
+            if effect_commit_token is None:
+                return True
+            output = self._registry.execute_validated(
+                call.tool_name,
+                call.operation,
+                validated_input,
                 context,
             )
             completed = self._repository.succeed(
@@ -118,15 +156,28 @@ class WorkerService:
                 call.id,
                 output.model_dump(mode="json"),
                 worker_id=self._worker_id,
-                completed_at=datetime.now(UTC),
+                expected_idempotency_key=call.idempotency_key,
+                expected_input=call.input,
+                effect_commit_token=effect_commit_token,
+                occurred_at=datetime.now(UTC),
             )
             if completed is not None:
                 self._add_success_message(leased.run, output)
         except (RetryableToolError, TimeoutError, ConnectionError) as error:
-            self._retry_failure(leased, error, claimed_at)
+            self._retry_failure(
+                leased,
+                error,
+                datetime.now(UTC),
+                effect_commit_token,
+            )
         except Exception as error:
             logger.warning("Tool call %s failed (%s)", call.id, type(error).__name__)
-            self._terminal_failure(leased, claimed_at, "TOOL_EXECUTION_FAILED")
+            self._terminal_failure(
+                leased,
+                datetime.now(UTC),
+                "TOOL_EXECUTION_FAILED",
+                effect_commit_token,
+            )
         return True
 
     def run_until_idle(self, *, max_items: int = 100) -> int:
@@ -140,6 +191,7 @@ class WorkerService:
         leased: LeasedToolCall,
         error: Exception,
         failed_at: datetime,
+        effect_commit_token: UUID | None,
     ) -> None:
         delay_seconds = min(60, 2 ** max(0, leased.call.attempt_count - 1))
         result = self._repository.record_failure(
@@ -151,6 +203,7 @@ class WorkerService:
             worker_id=self._worker_id,
             failed_at=failed_at,
             retry_at=failed_at + timedelta(seconds=delay_seconds),
+            effect_commit_token=effect_commit_token,
         )
         if result is not None and not result[1]:
             self._add_failure_message(leased.run)
@@ -160,6 +213,7 @@ class WorkerService:
         leased: LeasedToolCall,
         failed_at: datetime,
         error_code: str,
+        effect_commit_token: UUID | None = None,
     ) -> None:
         result = self._repository.record_failure(
             leased.owner_id,
@@ -170,6 +224,7 @@ class WorkerService:
             worker_id=self._worker_id,
             failed_at=failed_at,
             retry_at=None,
+            effect_commit_token=effect_commit_token,
         )
         if result is not None:
             self._add_failure_message(leased.run)

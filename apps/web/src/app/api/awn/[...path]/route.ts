@@ -25,7 +25,10 @@ function isAllowedPath(path: string[]): boolean {
     path.length === 5 ||
     path.length === 6 ||
     (path.length === 7 &&
-      (path[6] === "steps" || path[6] === "approvals" || path[6] === "tool-calls")) ||
+      (path[6] === "steps" ||
+        path[6] === "approvals" ||
+        path[6] === "tool-calls" ||
+        path[6] === "cancellation")) ||
     (path.length === 9 && path[6] === "approvals" && path[8] === "decision")
   );
 }
@@ -95,14 +98,28 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
 
   let body: string | undefined;
   if (request.method === "POST" || request.method === "PATCH") {
-    if (!request.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+    const isCancellation = request.method === "POST" && path.at(-1) === "cancellation";
+    if (isCancellation) {
+      const boundedBody = await readBoundedBody(request);
+      if (boundedBody === null) {
+        return NextResponse.json({ detail: "حجم الطلب أكبر من الحد المسموح" }, { status: 413 });
+      }
+      if (
+        boundedBody &&
+        !request.headers.get("content-type")?.toLowerCase().includes("application/json")
+      ) {
+        return NextResponse.json({ detail: "نوع المحتوى يجب أن يكون JSON" }, { status: 415 });
+      }
+      body = boundedBody || undefined;
+    } else if (!request.headers.get("content-type")?.toLowerCase().includes("application/json")) {
       return NextResponse.json({ detail: "نوع المحتوى يجب أن يكون JSON" }, { status: 415 });
+    } else {
+      const boundedBody = await readBoundedBody(request);
+      if (boundedBody === null) {
+        return NextResponse.json({ detail: "حجم الطلب أكبر من الحد المسموح" }, { status: 413 });
+      }
+      body = boundedBody;
     }
-    const boundedBody = await readBoundedBody(request);
-    if (boundedBody === null) {
-      return NextResponse.json({ detail: "حجم الطلب أكبر من الحد المسموح" }, { status: 413 });
-    }
-    body = boundedBody;
   }
 
   try {

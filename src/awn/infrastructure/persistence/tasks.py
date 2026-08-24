@@ -100,6 +100,25 @@ class SqlAlchemyTaskRepository:
             record = session.scalar(statement)
             return _to_domain(record) if record is not None else None
 
+    def get_by_source_tool_call(
+        self,
+        owner_id: UUID,
+        workspace_id: UUID,
+        source_tool_call_id: UUID,
+    ) -> Task | None:
+        statement = (
+            select(TaskRecord)
+            .join(WorkspaceRecord, WorkspaceRecord.id == TaskRecord.workspace_id)
+            .where(
+                WorkspaceRecord.owner_id == owner_id,
+                TaskRecord.workspace_id == workspace_id,
+                TaskRecord.source_tool_call_id == source_tool_call_id,
+            )
+        )
+        with self._session_factory() as session:
+            record = session.scalar(statement)
+            return _to_domain(record) if record is not None else None
+
     def list(
         self,
         owner_id: UUID,

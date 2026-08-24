@@ -1,14 +1,16 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, apiRequest } from "@/lib/api";
 import type {
   ApprovalRequest,
+  CancellationRequestResult,
   Conversation,
   Message,
   PlanStep,
   Run,
+  RunCancellation,
   RunStatus,
   SetupState,
   Task,
@@ -17,6 +19,13 @@ import type {
 } from "@/lib/types";
 
 type ScreenState = "loading" | "setup" | "ready" | "offline";
+type RunDetails = {
+  planSteps: PlanStep[];
+  approvals: ApprovalRequest[];
+  toolCalls: ToolCall[];
+};
+
+const EMPTY_RUN_DETAILS: RunDetails = { planSteps: [], approvals: [], toolCalls: [] };
 
 const RUN_LABELS: Record<RunStatus, string> = {
   received: "مستلم",
@@ -25,6 +34,8 @@ const RUN_LABELS: Record<RunStatus, string> = {
   ready: "جاهز",
   awaiting_approval: "بانتظار الموافقة",
   executing: "قيد التنفيذ",
+  cancellation_requested: "طُلب إلغاؤه",
+  cancellation_uncertain: "توقفه غير مؤكد",
   verifying: "يتحقق",
   succeeded: "مكتمل",
   partially_succeeded: "مكتمل جزئياً",
@@ -63,6 +74,49 @@ const TOOL_STATUS_LABELS: Record<ToolCall["status"], string> = {
   succeeded: "نجح",
   failed: "فشل",
   cancelled: "أُلغي",
+  outcome_unknown: "النتيجة غير مؤكدة",
+};
+
+const CANCELLATION_COPY: Record<
+  RunCancellation["status"],
+  { icon: string; title: string; meaning: string; next: string }
+> = {
+  accepted: {
+    icon: "⏸",
+    title: "قُبل طلب الإلغاء؛ يجري التحقق",
+    meaning: "ثُبّت أمر الإلغاء، لكن توقف الأثر الجاري لم يُؤكد بعد.",
+    next: "لا تبدأ تشغيلًا بديلًا حتى تظهر النتيجة.",
+  },
+  uncertain: {
+    icon: "?",
+    title: "تعذر تأكيد التوقف",
+    meaning: "لا يكفي الدليل الحالي للجزم بوقوع الأثر أو توقفه.",
+    next: "لا تعاود التنفيذ؛ راجع آخر دليل أو المورد.",
+  },
+  cancelled: {
+    icon: "■",
+    title: "أُلغي قبل الأثر",
+    meaning: "ثبت أن الأثر لم يبدأ، ومُنعت المحاولات التالية.",
+    next: "لا يلزم إجراء آخر.",
+  },
+  partially_succeeded: {
+    icon: "◐",
+    title: "وقع أثر جزئي وتوقف الباقي",
+    meaning: "بعض الأثر مثبت، ومنع عَوْن ما لم يبدأ.",
+    next: "راجع الأثر المثبت؛ لا يوجد تعويض تلقائي.",
+  },
+  completed: {
+    icon: "↦",
+    title: "اكتمل الأثر وكان الإلغاء متأخرًا",
+    meaning: "وصل أمر الإلغاء بعد تجاوز العمل نقطة التحكم الآمنة.",
+    next: "راجع النتيجة؛ التعويض غير متاح تلقائيًا.",
+  },
+  execution_failed: {
+    icon: "×",
+    title: "توقف التنفيذ بسبب فشل",
+    meaning: "لا يوجد أثر ناجح مثبت، ولم يكن الإلغاء وحده سبب التوقف.",
+    next: "راجع الخطأ قبل اتخاذ إجراء جديد.",
+  },
 };
 
 function formatTime(value: string): string {
@@ -84,6 +138,33 @@ function errorMessage(error: unknown): string {
   return "حدث خطأ غير متوقع. حاول مرة أخرى.";
 }
 
+async function optionalCancellation(path: string): Promise<RunCancellation | null> {
+  try {
+    return await apiRequest<RunCancellation>(path);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+function mergeCancellations(
+  current: Record<string, RunCancellation | null>,
+  entries: readonly (readonly [string, RunCancellation | null])[],
+): Record<string, RunCancellation | null> {
+  const next = { ...current };
+  for (const [runId, incoming] of entries) {
+    const existing = next[runId];
+    if (incoming === null) {
+      if (!(runId in next)) next[runId] = null;
+      continue;
+    }
+    if (!existing || Date.parse(incoming.updated_at) >= Date.parse(existing.updated_at)) {
+      next[runId] = incoming;
+    }
+  }
+  return next;
+}
+
 export function Dashboard() {
   const [screen, setScreen] = useState<ScreenState>("loading");
   const [setup, setSetup] = useState<SetupState | null>(null);
@@ -93,22 +174,60 @@ export function Dashboard() {
   const [conversationId, setConversationId] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
-  const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const selectedRunIdRef = useRef("");
+  const detailRequestVersionsRef = useRef<Record<string, number>>({});
+  const cancellationIntentVersionRef = useRef(0);
+  const viewContextRef = useRef({ workspaceId: "", conversationId: "", version: 0 });
+  const [runDetails, setRunDetails] = useState<Record<string, RunDetails>>({});
+  const [cancellations, setCancellations] = useState<Record<string, RunCancellation | null>>({});
+  const [cancellationNotices, setCancellationNotices] = useState<Record<string, string>>({});
+  const [cancellingRunIds, setCancellingRunIds] = useState<Set<string>>(() => new Set());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [autonomyLevel, setAutonomyLevel] = useState<0 | 2>(0);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const beginViewContext = useCallback((nextWorkspaceId: string, nextConversationId: string) => {
+    const version = viewContextRef.current.version + 1;
+    viewContextRef.current = {
+      workspaceId: nextWorkspaceId,
+      conversationId: nextConversationId,
+      version,
+    };
+    cancellationIntentVersionRef.current += 1;
+    return version;
+  }, []);
+
+  const isCurrentViewContext = useCallback(
+    (nextWorkspaceId: string, nextConversationId: string, version: number) => {
+      const current = viewContextRef.current;
+      return (
+        current.workspaceId === nextWorkspaceId &&
+        current.conversationId === nextConversationId &&
+        current.version === version
+      );
+    },
+    [],
+  );
+
   const loadConversation = useCallback(async (nextWorkspaceId: string, nextConversationId: string) => {
+    const context = viewContextRef.current;
+    if (
+      context.workspaceId !== nextWorkspaceId ||
+      context.conversationId !== nextConversationId
+    ) {
+      return;
+    }
+    const contextVersion = context.version;
     if (!nextWorkspaceId || !nextConversationId) {
       setMessages([]);
       setRuns([]);
-      setPlanSteps([]);
-      setApprovals([]);
-      setToolCalls([]);
+      setSelectedRunId("");
+      selectedRunIdRef.current = "";
+      setRunDetails({});
+      setCancellations({});
       return;
     }
     const base = `workspaces/${nextWorkspaceId}/conversations/${nextConversationId}`;
@@ -117,42 +236,80 @@ export function Dashboard() {
       apiRequest<Run[]>(`${base}/runs`),
       apiRequest<Task[]>(`workspaces/${nextWorkspaceId}/tasks`),
     ]);
+    if (!isCurrentViewContext(nextWorkspaceId, nextConversationId, contextVersion)) return;
     setMessages(nextMessages);
     setRuns(nextRuns);
     setTasks(nextTasks);
-    const latestRun = nextRuns[0];
-    const [nextPlanSteps, nextApprovals, nextToolCalls] = latestRun
-      ? await Promise.all([
-          apiRequest<PlanStep[]>(`${base}/runs/${latestRun.id}/steps`),
-          apiRequest<ApprovalRequest[]>(`${base}/runs/${latestRun.id}/approvals`),
-          apiRequest<ToolCall[]>(`${base}/runs/${latestRun.id}/tool-calls`),
+    const selectedRun =
+      nextRuns.find((run) => run.id === selectedRunIdRef.current) ?? nextRuns[0] ?? null;
+    selectedRunIdRef.current = selectedRun?.id ?? "";
+    setSelectedRunId(selectedRunIdRef.current);
+    const watchedRunIds = new Set(
+      nextRuns.filter((run) => !TERMINAL_RUNS.has(run.status)).map((run) => run.id),
+    );
+    if (selectedRun) watchedRunIds.add(selectedRun.id);
+    const detailsPromise = selectedRun
+      ? Promise.all([
+          apiRequest<PlanStep[]>(`${base}/runs/${selectedRun.id}/steps`),
+          apiRequest<ApprovalRequest[]>(`${base}/runs/${selectedRun.id}/approvals`),
+          apiRequest<ToolCall[]>(`${base}/runs/${selectedRun.id}/tool-calls`),
         ])
-      : [[], [], []];
-    setPlanSteps(nextPlanSteps);
-    setApprovals(nextApprovals);
-    setToolCalls(nextToolCalls);
-  }, []);
+      : Promise.resolve<[PlanStep[], ApprovalRequest[], ToolCall[]]>([[], [], []]);
+    const detailRequestVersion = selectedRun
+      ? (detailRequestVersionsRef.current[selectedRun.id] ?? 0) + 1
+      : 0;
+    if (selectedRun) detailRequestVersionsRef.current[selectedRun.id] = detailRequestVersion;
+    const cancellationsPromise = Promise.all(
+      [...watchedRunIds].map(async (runId) => [
+        runId,
+        await optionalCancellation(`${base}/runs/${runId}/cancellation`),
+      ] as const),
+    );
+    const [[nextPlanSteps, nextApprovals, nextToolCalls], cancellationEntries] =
+      await Promise.all([detailsPromise, cancellationsPromise]);
+    if (!isCurrentViewContext(nextWorkspaceId, nextConversationId, contextVersion)) return;
+    if (
+      selectedRun &&
+      detailRequestVersionsRef.current[selectedRun.id] === detailRequestVersion
+    ) {
+      setRunDetails((current) => ({
+        ...current,
+        [selectedRun.id]: {
+          planSteps: nextPlanSteps,
+          approvals: nextApprovals,
+          toolCalls: nextToolCalls,
+        },
+      }));
+    }
+    setCancellations((current) => mergeCancellations(current, cancellationEntries));
+  }, [isCurrentViewContext]);
 
   const loadWorkspace = useCallback(async (nextWorkspaceId: string) => {
     if (!nextWorkspaceId) return;
+    const context = viewContextRef.current;
+    if (context.workspaceId !== nextWorkspaceId || context.conversationId !== "") return;
+    const contextVersion = context.version;
     const [nextConversations, nextTasks] = await Promise.all([
       apiRequest<Conversation[]>(`workspaces/${nextWorkspaceId}/conversations`),
       apiRequest<Task[]>(`workspaces/${nextWorkspaceId}/tasks`),
     ]);
+    if (!isCurrentViewContext(nextWorkspaceId, "", contextVersion)) return;
     setConversations(nextConversations);
     setTasks(nextTasks);
     const nextConversationId = nextConversations[0]?.id ?? "";
+    beginViewContext(nextWorkspaceId, nextConversationId);
     setConversationId(nextConversationId);
     if (nextConversationId) {
       await loadConversation(nextWorkspaceId, nextConversationId);
     } else {
       setMessages([]);
       setRuns([]);
-      setPlanSteps([]);
-      setApprovals([]);
-      setToolCalls([]);
+      setSelectedRunId("");
+      selectedRunIdRef.current = "";
+      setRunDetails({});
+      setCancellations({});
     }
-  }, [loadConversation]);
+  }, [beginViewContext, isCurrentViewContext, loadConversation]);
 
   const initialize = useCallback(async () => {
     setScreen("loading");
@@ -173,6 +330,7 @@ export function Dashboard() {
       setSetup(current);
       setWorkspaces(nextWorkspaces);
       const nextWorkspaceId = nextWorkspaces[0]?.id ?? current.workspace.id;
+      beginViewContext(nextWorkspaceId, "");
       setWorkspaceId(nextWorkspaceId);
       await loadWorkspace(nextWorkspaceId);
       setScreen("ready");
@@ -180,7 +338,7 @@ export function Dashboard() {
       setNotice(errorMessage(error));
       setScreen("offline");
     }
-  }, [loadWorkspace]);
+  }, [beginViewContext, loadWorkspace]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void initialize(), 0);
@@ -199,38 +357,118 @@ export function Dashboard() {
     () => conversations.find((conversation) => conversation.id === conversationId) ?? null,
     [conversationId, conversations],
   );
-  const activeRuns = runs.filter((run) => !TERMINAL_RUNS.has(run.status)).length;
+  const activeRunItems = runs.filter((run) => !TERMINAL_RUNS.has(run.status));
+  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null;
+  const selectedRunDetails = selectedRun
+    ? runDetails[selectedRun.id] ?? EMPTY_RUN_DETAILS
+    : EMPTY_RUN_DETAILS;
+  const { planSteps, approvals, toolCalls } = selectedRunDetails;
+  const selectedCancellation = selectedRun ? cancellations[selectedRun.id] ?? null : null;
+  const hasEvidenceConflict =
+    selectedCancellation?.events.some((event) => event.event_type === "evidence_conflict") ?? false;
+  const cancellationCopy = selectedCancellation
+    ? hasEvidenceConflict
+      ? {
+          icon: "⇄",
+          title: "تعارض دليل النتيجة؛ المصالحة مطلوبة",
+          meaning: "وصل دليلان متحققان على حقيقتين متعارضتين، فسحب عَوْن صفة اليقين.",
+          next: "لا تعاود التنفيذ؛ قارن آخر دليلين وتوقيتهما.",
+        }
+      : CANCELLATION_COPY[selectedCancellation.status]
+    : null;
+  const recentCancellationEvents = selectedCancellation?.events.slice(-2) ?? [];
+  const latestConflictEvent = selectedCancellation
+    ? [...selectedCancellation.events]
+        .reverse()
+        .find((event) => event.event_type === "evidence_conflict") ?? null
+    : null;
+  const relatedConflictEvent =
+    selectedCancellation && latestConflictEvent?.related_evidence_fingerprint
+      ? selectedCancellation.events.find(
+          (event) =>
+            event.evidence_fingerprint === latestConflictEvent.related_evidence_fingerprint,
+        ) ?? null
+      : null;
 
   async function selectWorkspace(nextWorkspaceId: string) {
+    const contextVersion = beginViewContext(nextWorkspaceId, "");
     setWorkspaceId(nextWorkspaceId);
     setConversationId("");
     setConversations([]);
     setMessages([]);
     setRuns([]);
-    setPlanSteps([]);
-    setApprovals([]);
-    setToolCalls([]);
+    setSelectedRunId("");
+    selectedRunIdRef.current = "";
+    setRunDetails({});
+    setCancellations({});
     setTasks([]);
     setNotice(null);
     try {
       await loadWorkspace(nextWorkspaceId);
     } catch (error) {
-      setNotice(errorMessage(error));
+      if (isCurrentViewContext(nextWorkspaceId, "", contextVersion)) {
+        setNotice(errorMessage(error));
+      }
     }
   }
 
   async function selectConversation(nextConversationId: string) {
+    const contextVersion = beginViewContext(workspaceId, nextConversationId);
     setConversationId(nextConversationId);
     setMessages([]);
     setRuns([]);
-    setPlanSteps([]);
-    setApprovals([]);
-    setToolCalls([]);
+    setSelectedRunId("");
+    selectedRunIdRef.current = "";
+    setRunDetails({});
+    setCancellations({});
     setNotice(null);
     try {
       await loadConversation(workspaceId, nextConversationId);
     } catch (error) {
-      setNotice(errorMessage(error));
+      if (isCurrentViewContext(workspaceId, nextConversationId, contextVersion)) {
+        setNotice(errorMessage(error));
+      }
+    }
+  }
+
+  async function selectRun(nextRunId: string) {
+    if (!workspaceId || !conversationId) return;
+    const contextVersion = viewContextRef.current.version;
+    selectedRunIdRef.current = nextRunId;
+    setSelectedRunId(nextRunId);
+    const detailRequestVersion =
+      (detailRequestVersionsRef.current[nextRunId] ?? 0) + 1;
+    detailRequestVersionsRef.current[nextRunId] = detailRequestVersion;
+    const base = `workspaces/${workspaceId}/conversations/${conversationId}/runs/${nextRunId}`;
+    try {
+      const [nextPlanSteps, nextApprovals, nextToolCalls, cancellation] = await Promise.all([
+        apiRequest<PlanStep[]>(`${base}/steps`),
+        apiRequest<ApprovalRequest[]>(`${base}/approvals`),
+        apiRequest<ToolCall[]>(`${base}/tool-calls`),
+        optionalCancellation(`${base}/cancellation`),
+      ]);
+      if (
+        isCurrentViewContext(workspaceId, conversationId, contextVersion) &&
+        detailRequestVersionsRef.current[nextRunId] === detailRequestVersion
+      ) {
+        setRunDetails((current) => ({
+          ...current,
+          [nextRunId]: {
+            planSteps: nextPlanSteps,
+            approvals: nextApprovals,
+            toolCalls: nextToolCalls,
+          },
+        }));
+      }
+      if (isCurrentViewContext(workspaceId, conversationId, contextVersion)) {
+        setCancellations((current) =>
+          mergeCancellations(current, [[nextRunId, cancellation]]),
+        );
+      }
+    } catch (error) {
+      if (isCurrentViewContext(workspaceId, conversationId, contextVersion)) {
+        setNotice(errorMessage(error));
+      }
     }
   }
 
@@ -260,28 +498,58 @@ export function Dashboard() {
   async function createConversation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!workspaceId) return;
+    const requestWorkspaceId = workspaceId;
+    const requestContext = { ...viewContextRef.current };
+    if (requestContext.workspaceId !== requestWorkspaceId) return;
     setBusy(true);
     setNotice(null);
     const form = event.currentTarget;
     const data = new FormData(form);
+    let createdConversationId = "";
+    let createdContextVersion: number | null = null;
     try {
       const conversation = await apiRequest<Conversation>(
-        `workspaces/${workspaceId}/conversations`,
+        `workspaces/${requestWorkspaceId}/conversations`,
         {
           method: "POST",
           body: JSON.stringify({ title: data.get("title") }),
         },
       );
+      if (
+        !isCurrentViewContext(
+          requestWorkspaceId,
+          requestContext.conversationId,
+          requestContext.version,
+        )
+      ) {
+        return;
+      }
       setConversations((current) => [conversation, ...current]);
+      createdConversationId = conversation.id;
+      createdContextVersion = beginViewContext(requestWorkspaceId, conversation.id);
       setConversationId(conversation.id);
       setMessages([]);
       setRuns([]);
-      setPlanSteps([]);
-      setApprovals([]);
-      setToolCalls([]);
+      setSelectedRunId("");
+      selectedRunIdRef.current = "";
+      setRunDetails({});
+      setCancellations({});
       form.reset();
+      await loadConversation(requestWorkspaceId, conversation.id);
     } catch (error) {
-      setNotice(errorMessage(error));
+      const errorBelongsToCurrentView =
+        createdContextVersion === null
+          ? isCurrentViewContext(
+              requestWorkspaceId,
+              requestContext.conversationId,
+              requestContext.version,
+            )
+          : isCurrentViewContext(
+              requestWorkspaceId,
+              createdConversationId,
+              createdContextVersion,
+            );
+      if (errorBelongsToCurrentView) setNotice(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -291,27 +559,57 @@ export function Dashboard() {
     event.preventDefault();
     const text = draft.trim();
     if (!workspaceId || !conversationId || !text) return;
+    const requestWorkspaceId = workspaceId;
+    const requestConversationId = conversationId;
+    const requestContextVersion = viewContextRef.current.version;
+    if (
+      !isCurrentViewContext(
+        requestWorkspaceId,
+        requestConversationId,
+        requestContextVersion,
+      )
+    ) {
+      return;
+    }
+    const isRequestContextCurrent = () =>
+      isCurrentViewContext(
+        requestWorkspaceId,
+        requestConversationId,
+        requestContextVersion,
+      );
+    const requestAutonomyLevel = autonomyLevel;
     setBusy(true);
     setNotice(null);
-    const base = `workspaces/${workspaceId}/conversations/${conversationId}`;
+    setDraft("");
+    const base = `workspaces/${requestWorkspaceId}/conversations/${requestConversationId}`;
     try {
       const message = await apiRequest<Message>(`${base}/messages`, {
         method: "POST",
         body: JSON.stringify({ parts: [{ type: "text", text }] }),
       });
-      setMessages((current) => [...current, message]);
-      setDraft("");
+      if (isRequestContextCurrent()) {
+        setMessages((current) => [...current, message]);
+      }
 
       const run = await apiRequest<Run>(`${base}/runs`, {
         method: "POST",
-        body: JSON.stringify({ request_message_id: message.id, autonomy_level: autonomyLevel }),
+        body: JSON.stringify({
+          request_message_id: message.id,
+          autonomy_level: requestAutonomyLevel,
+        }),
       });
+      if (!isRequestContextCurrent()) return;
       setRuns((current) => [run, ...current]);
-      setPlanSteps([]);
-      setApprovals([]);
-      setToolCalls([]);
+      selectedRunIdRef.current = run.id;
+      setSelectedRunId(run.id);
+      setRunDetails((current) => ({ ...current, [run.id]: EMPTY_RUN_DETAILS }));
+      setCancellations((current) => ({ ...current, [run.id]: null }));
     } catch (error) {
-      setNotice(errorMessage(error));
+      if (isRequestContextCurrent()) {
+        setNotice(errorMessage(error));
+        setDraft((current) => current || text);
+        await loadConversation(requestWorkspaceId, requestConversationId).catch(() => undefined);
+      }
     } finally {
       setBusy(false);
     }
@@ -322,10 +620,19 @@ export function Dashboard() {
     decision: "approve" | "reject",
   ) {
     if (!workspaceId || !conversationId) return;
+    const requestWorkspaceId = workspaceId;
+    const requestConversationId = conversationId;
+    const requestContextVersion = viewContextRef.current.version;
+    const isRequestContextCurrent = () =>
+      isCurrentViewContext(
+        requestWorkspaceId,
+        requestConversationId,
+        requestContextVersion,
+      );
     setBusy(true);
     setNotice(null);
     const path =
-      `workspaces/${workspaceId}/conversations/${conversationId}` +
+      `workspaces/${requestWorkspaceId}/conversations/${requestConversationId}` +
       `/runs/${approval.run_id}/approvals/${approval.id}/decision`;
     try {
       await apiRequest<ApprovalRequest>(path, {
@@ -335,17 +642,169 @@ export function Dashboard() {
           action_fingerprint: approval.action_fingerprint,
         }),
       });
-      await loadConversation(workspaceId, conversationId);
-      setNotice(
-        decision === "approve"
-          ? "نُفذ الإجراء المصرح به، وحُفظت النتيجة في سجل التشغيل."
-          : "رُفض الطلب وأُلغي هذا التشغيل.",
-      );
+      await loadConversation(requestWorkspaceId, requestConversationId);
+      if (isRequestContextCurrent()) {
+        setNotice(
+          decision === "approve"
+            ? "سُجلت الموافقة وأُضيف الإجراء إلى التنفيذ؛ ستظهر النتيجة بعد تحقق العامل."
+            : "رُفض الطلب وأُلغي هذا التشغيل.",
+        );
+      }
     } catch (error) {
-      setNotice(errorMessage(error));
-      await loadConversation(workspaceId, conversationId).catch(() => undefined);
+      if (isRequestContextCurrent()) {
+        setNotice(errorMessage(error));
+        await loadConversation(requestWorkspaceId, requestConversationId).catch(() => undefined);
+      }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function requestCancellation(run: Run) {
+    if (!workspaceId || !conversationId) return;
+    if (run.workspace_id !== workspaceId || run.conversation_id !== conversationId) {
+      setNotice("تعذر إلغاء تشغيل من خارج المحادثة الحالية. حدّث العرض وحاول مجددًا.");
+      return;
+    }
+    const requestWorkspaceId = workspaceId;
+    const requestConversationId = conversationId;
+    const viewContextVersion = viewContextRef.current.version;
+    const isRequestContextCurrent = () =>
+      isCurrentViewContext(
+        requestWorkspaceId,
+        requestConversationId,
+        viewContextVersion,
+      );
+    const intentVersion = cancellationIntentVersionRef.current + 1;
+    cancellationIntentVersionRef.current = intentVersion;
+    const path =
+      `workspaces/${requestWorkspaceId}/conversations/${requestConversationId}` +
+      `/runs/${run.id}/cancellation`;
+    setCancellingRunIds((current) => new Set(current).add(run.id));
+    setCancellationNotices((current) => {
+      const next = { ...current };
+      delete next[run.id];
+      return next;
+    });
+    try {
+      const result = await apiRequest<CancellationRequestResult>(path, { method: "POST" });
+      if (!isRequestContextCurrent()) return;
+      if (result.cancellation) {
+        setCancellations((current) =>
+          mergeCancellations(current, [[run.id, result.cancellation]]),
+        );
+      }
+      if (result.decision === "too_late") {
+        setCancellationNotices((current) => ({
+          ...current,
+          [run.id]: "وصل الطلب بعد اكتمال التشغيل؛ لم يتغير تاريخه.",
+        }));
+      } else if (result.decision === "not_cancellable") {
+        setCancellationNotices((current) => ({
+          ...current,
+          [run.id]: "هذا التشغيل ليس في حالة تسمح بإلغاء التنفيذ.",
+        }));
+      }
+      const isLatestIntent =
+        isRequestContextCurrent() && cancellationIntentVersionRef.current === intentVersion;
+      if (isLatestIntent) {
+        selectedRunIdRef.current = run.id;
+        setSelectedRunId(run.id);
+      }
+      await loadConversation(requestWorkspaceId, requestConversationId);
+      if (!isRequestContextCurrent()) return;
+      const feedbackId = result.cancellation
+        ? `cancellation-${run.id}`
+        : `cancellation-notice-${run.id}`;
+      if (isLatestIntent) {
+        window.setTimeout(() => {
+          if (
+            isRequestContextCurrent() &&
+            cancellationIntentVersionRef.current === intentVersion
+          ) {
+            document.getElementById(feedbackId)?.focus();
+          }
+        }, 0);
+      }
+    } catch {
+      if (!isRequestContextCurrent()) return;
+      try {
+        const recovered = await optionalCancellation(path);
+        if (!isRequestContextCurrent()) return;
+        if (recovered) {
+          const isLatestIntent =
+            isRequestContextCurrent() && cancellationIntentVersionRef.current === intentVersion;
+          if (isLatestIntent) {
+            selectedRunIdRef.current = run.id;
+            setSelectedRunId(run.id);
+          }
+          setCancellations((current) =>
+            mergeCancellations(current, [[run.id, recovered]]),
+          );
+          setCancellationNotices((current) => ({
+            ...current,
+            [run.id]: "تعذرت استجابة الطلب، لكن عَوْن أكد أن أمر الإلغاء محفوظ.",
+          }));
+          await loadConversation(requestWorkspaceId, requestConversationId);
+          if (!isRequestContextCurrent()) return;
+          if (isLatestIntent) {
+            window.setTimeout(
+              () => {
+                if (
+                  isRequestContextCurrent() &&
+                  cancellationIntentVersionRef.current === intentVersion
+                ) {
+                  document.getElementById(`cancellation-${run.id}`)?.focus();
+                }
+              },
+              0,
+            );
+          }
+        } else {
+          setCancellationNotices((current) => ({
+            ...current,
+            [run.id]: "لم يتأكد قبول الإلغاء. يمكنك إعادة المحاولة بأمان.",
+          }));
+          if (
+            isRequestContextCurrent() &&
+            cancellationIntentVersionRef.current === intentVersion
+          ) {
+            window.setTimeout(
+              () => {
+                if (isRequestContextCurrent()) {
+                  document.getElementById(`cancellation-notice-${run.id}`)?.focus();
+                }
+              },
+              0,
+            );
+          }
+        }
+      } catch {
+        if (!isRequestContextCurrent()) return;
+        setCancellationNotices((current) => ({
+          ...current,
+          [run.id]: "تعذر التحقق من قبول الإلغاء. إعادة الطلب آمنة ولا تكرر الأثر.",
+        }));
+        if (
+          isRequestContextCurrent() &&
+          cancellationIntentVersionRef.current === intentVersion
+        ) {
+          window.setTimeout(
+            () => {
+              if (isRequestContextCurrent()) {
+                document.getElementById(`cancellation-notice-${run.id}`)?.focus();
+              }
+            },
+            0,
+          );
+        }
+      }
+    } finally {
+      setCancellingRunIds((current) => {
+        const next = new Set(current);
+        next.delete(run.id);
+        return next;
+      });
     }
   }
 
@@ -524,8 +983,8 @@ export function Dashboard() {
           </article>
           <article className="stat-card">
             <span className="stat-label">التشغيلات النشطة</span>
-            <strong>{activeRuns}</strong>
-            <small>{activeRuns ? "تُحدّث تلقائيًا" : "لا يوجد عمل معلّق"}</small>
+            <strong>{activeRunItems.length}</strong>
+            <small>{activeRunItems.length ? "تُحدّث تلقائيًا" : "لا يوجد عمل معلّق"}</small>
           </article>
         </section>
 
@@ -572,14 +1031,170 @@ export function Dashboard() {
                     <span className="eyebrow">المحادثة الحالية</span>
                     <h2>{selectedConversation.title ?? "محادثة بلا عنوان"}</h2>
                   </div>
-                  {runs[0] && (
-                    <span className={`run-badge status-${runs[0].status}`}>
-                      {RUN_LABELS[runs[0].status]}
+                  {selectedRun && (
+                    <span className={`run-badge status-${selectedRun.status}`}>
+                      {RUN_LABELS[selectedRun.status]}
                     </span>
                   )}
                 </header>
 
-                <div className="messages" aria-live="polite">
+                {runs.length > 0 && (
+                  <section className="active-runs-panel" aria-label="تشغيلات المحادثة">
+                    <header>
+                      <div>
+                        <span className="eyebrow">التشغيلات</span>
+                        <h3>اختر التشغيل الذي تريد متابعته</h3>
+                      </div>
+                      <span className="count-badge">{runs.length}</span>
+                    </header>
+                    <div className="run-list">
+                      {runs.map((run) => {
+                        const cancellation = cancellations[run.id];
+                        const shortId = run.id.slice(0, 8);
+                        return (
+                          <article
+                            className={`run-row ${run.id === selectedRunId ? "selected" : ""}`}
+                            key={run.id}
+                          >
+                            <button
+                              type="button"
+                              className="run-select"
+                              aria-current={run.id === selectedRunId ? "true" : undefined}
+                              onClick={() => void selectRun(run.id)}
+                            >
+                              <span className="run-identity">
+                                <strong>تشغيل <bdi dir="ltr">{shortId}</bdi></strong>
+                                <small>{formatTime(run.created_at)}</small>
+                              </span>
+                              <span className={`run-badge status-${run.status}`}>
+                                {RUN_LABELS[run.status]}
+                              </span>
+                              {cancellation && (
+                                <small className="run-cancellation-state">
+                                  {CANCELLATION_COPY[cancellation.status].icon}{" "}
+                                  {CANCELLATION_COPY[cancellation.status].title}
+                                </small>
+                              )}
+                            </button>
+                            {run.status === "executing" && !cancellation && (
+                              <button
+                                id={`cancel-button-${run.id}`}
+                                type="button"
+                                className="cancel-run-button"
+                                disabled={cancellingRunIds.has(run.id)}
+                                aria-label={`إلغاء التنفيذ ${shortId} عند ${formatTime(run.created_at)}`}
+                                onClick={() => void requestCancellation(run)}
+                              >
+                                {cancellingRunIds.has(run.id)
+                                  ? "جارٍ إرسال الطلب…"
+                                  : "إلغاء التنفيذ"}
+                              </button>
+                            )}
+                            {cancellationNotices[run.id] && (
+                              <p
+                                id={`cancellation-notice-${run.id}`}
+                                className="run-cancellation-notice"
+                                role="status"
+                                tabIndex={-1}
+                              >
+                                {cancellationNotices[run.id]}
+                              </p>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {selectedCancellation && cancellationCopy && selectedRun && (
+                  <section
+                    id={`cancellation-${selectedRun.id}`}
+                    className={`cancellation-card cancellation-${selectedCancellation.status} ${hasEvidenceConflict ? "cancellation-conflict" : ""}`}
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`حالة إلغاء التشغيل ${selectedRun.id.slice(0, 8)}`}
+                    tabIndex={-1}
+                  >
+                    <header>
+                      <span className="cancellation-icon" aria-hidden="true">
+                        {cancellationCopy.icon}
+                      </span>
+                      <div>
+                        <span className="eyebrow">فرامل التشغيل</span>
+                        <h3>{cancellationCopy.title}</h3>
+                      </div>
+                    </header>
+                    <p>{cancellationCopy.meaning}</p>
+                    <div className="cancellation-next">
+                      <strong>الخطوة الآمنة التالية</strong>
+                      <span>{cancellationCopy.next}</span>
+                    </div>
+                    <ol className="cancellation-timeline" aria-label="خط الإلغاء الزمني">
+                      <li>
+                        <span>↓</span>
+                        <div>
+                          <strong>استلم عَوْن الطلب</strong>
+                          <time>{formatTime(selectedCancellation.received_at)}</time>
+                        </div>
+                      </li>
+                      <li>
+                        <span>⏸</span>
+                        <div>
+                          <strong>ثُبّت أمر الإلغاء</strong>
+                          <time>{formatTime(selectedCancellation.requested_at)}</time>
+                        </div>
+                      </li>
+                    </ol>
+                    {recentCancellationEvents.length > 0 && (
+                      <details className="cancellation-evidence" open={hasEvidenceConflict}>
+                        <summary>آخر دليل مسجل</summary>
+                        <ul>
+                          {recentCancellationEvents.map((event) => (
+                            <li key={event.id}>
+                              <bdi dir="ltr">{event.evidence_code}</bdi>
+                              <time>{formatTime(event.observed_at)}</time>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    {latestConflictEvent && (
+                      <dl className="cancellation-conflict-evidence">
+                        <div>
+                          <dt>الحالة السابقة التي سُحب يقينها</dt>
+                          <dd>
+                            <bdi dir="ltr">
+                              {latestConflictEvent.superseded_status ?? "غير مسجلة"}
+                            </bdi>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>الدليل الأحدث</dt>
+                          <dd>
+                            <bdi dir="ltr">
+                              {latestConflictEvent.evidence_fingerprint ?? "غير متاح"}
+                            </bdi>
+                            <time>{formatTime(latestConflictEvent.observed_at)}</time>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>الدليل المتعارض معه</dt>
+                          <dd>
+                            <bdi dir="ltr">
+                              {latestConflictEvent.related_evidence_fingerprint ?? "غير متاح"}
+                            </bdi>
+                            {relatedConflictEvent && (
+                              <time>{formatTime(relatedConflictEvent.observed_at)}</time>
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
+                    )}
+                  </section>
+                )}
+
+                <div className="messages">
                   {messages.length === 0 ? (
                     <div className="chat-empty">
                       <div className="brand-mark large">ع</div>
@@ -598,13 +1213,13 @@ export function Dashboard() {
                       </div>
                     </article>
                   ))}
-                  {runs[0]?.status === "received" && (
+                  {selectedRun?.status === "received" && (
                     <div className="run-note">
                       <span className="pulse" />
                       تم استلام الطلب، وسيبدأ عَوْن بتحليله الآن.
                     </div>
                   )}
-                  {runs[0]?.status === "planning" && (
+                  {selectedRun?.status === "planning" && (
                     <div className="run-note">
                       <span className="pulse" />
                       يجري إعداد إجابة أو خطة منظمة قابلة للمراجعة.
@@ -712,9 +1327,11 @@ export function Dashboard() {
                             ? "فشل التنفيذ بعد المحاولات المسموحة، وحُفظ رمز الخطأ دون ادعاء النجاح."
                             : call.status === "pending"
                               ? "حُفظ الإجراء في الطابور الدائم وينتظر العامل أو موعد إعادة المحاولة."
-                              : call.status === "cancelled"
-                                ? "أُلغي هذا الإجراء قبل تنفيذه."
-                                : "حصل العامل على مهلة التنفيذ ويجري تشغيل الإجراء المصرح به."}
+                               : call.status === "cancelled"
+                                  ? "أُلغي هذا الإجراء قبل تنفيذه."
+                                  : call.status === "outcome_unknown"
+                                    ? "تعذر تأكيد أثر هذا الاستدعاء؛ لن يعيد عَوْن تشغيله تلقائيًا."
+                                    : "حصل العامل على مهلة التنفيذ ويجري تشغيل الإجراء المصرح به."}
                       </p>
                       {typeof call.output?.path === "string" && (
                         <p>

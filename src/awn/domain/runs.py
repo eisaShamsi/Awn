@@ -15,6 +15,8 @@ class RunStatus(StrEnum):
     READY = "ready"
     AWAITING_APPROVAL = "awaiting_approval"
     EXECUTING = "executing"
+    CANCELLATION_REQUESTED = "cancellation_requested"
+    CANCELLATION_UNCERTAIN = "cancellation_uncertain"
     VERIFYING = "verifying"
     SUCCEEDED = "succeeded"
     PARTIALLY_SUCCEEDED = "partially_succeeded"
@@ -37,6 +39,7 @@ class PlanStepStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     CANCELLED = "cancelled"
+    OUTCOME_UNKNOWN = "outcome_unknown"
 
 
 class RunCreate(BaseModel):
@@ -78,7 +81,34 @@ ALLOWED_RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.AWAITING_APPROVAL: frozenset(
         {RunStatus.READY, RunStatus.EXECUTING, RunStatus.CANCELLED}
     ),
-    RunStatus.EXECUTING: frozenset({RunStatus.VERIFYING, RunStatus.FAILED, RunStatus.CANCELLED}),
+    RunStatus.EXECUTING: frozenset(
+        {
+            RunStatus.CANCELLATION_REQUESTED,
+            RunStatus.CANCELLATION_UNCERTAIN,
+            RunStatus.VERIFYING,
+            RunStatus.SUCCEEDED,
+            RunStatus.PARTIALLY_SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }
+    ),
+    RunStatus.CANCELLATION_REQUESTED: frozenset(
+        {
+            RunStatus.CANCELLATION_UNCERTAIN,
+            RunStatus.SUCCEEDED,
+            RunStatus.PARTIALLY_SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }
+    ),
+    RunStatus.CANCELLATION_UNCERTAIN: frozenset(
+        {
+            RunStatus.SUCCEEDED,
+            RunStatus.PARTIALLY_SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }
+    ),
     RunStatus.VERIFYING: frozenset(
         {
             RunStatus.SUCCEEDED,
@@ -86,11 +116,11 @@ ALLOWED_RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
             RunStatus.FAILED,
         }
     ),
-    RunStatus.SUCCEEDED: frozenset(),
-    RunStatus.PARTIALLY_SUCCEEDED: frozenset(),
-    RunStatus.FAILED: frozenset(),
+    RunStatus.SUCCEEDED: frozenset({RunStatus.CANCELLATION_UNCERTAIN}),
+    RunStatus.PARTIALLY_SUCCEEDED: frozenset({RunStatus.CANCELLATION_UNCERTAIN}),
+    RunStatus.FAILED: frozenset({RunStatus.CANCELLATION_UNCERTAIN}),
     RunStatus.DENIED: frozenset(),
-    RunStatus.CANCELLED: frozenset(),
+    RunStatus.CANCELLED: frozenset({RunStatus.CANCELLATION_UNCERTAIN}),
 }
 
 

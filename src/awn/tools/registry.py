@@ -68,6 +68,20 @@ class ToolRegistry:
         except ValidationError as error:
             raise InvalidToolInputError("tool input did not match its schema") from error
 
+    def validate_output(
+        self,
+        name: str,
+        operation: str,
+        output: object,
+    ) -> BaseModel:
+        definition = self.resolve(name, operation)
+        if definition is None:
+            raise UnknownToolError(f"unknown tool operation: {name}.{operation}")
+        try:
+            return definition.output_model.model_validate(output)
+        except ValidationError as error:
+            raise InvalidToolOutputError("tool output did not match its schema") from error
+
     def execute(
         self,
         name: str,
@@ -79,8 +93,21 @@ class ToolRegistry:
         if definition is None:
             raise UnknownToolError(f"unknown tool operation: {name}.{operation}")
         tool_input = self.validate_input(name, operation, arguments)
+        return self.execute_validated(name, operation, tool_input, context)
+
+    def execute_validated(
+        self,
+        name: str,
+        operation: str,
+        tool_input: BaseModel,
+        context: ToolContext,
+    ) -> BaseModel:
+        """Execute an input that was validated before the durable effect gate."""
+
+        definition = self.resolve(name, operation)
+        if definition is None:
+            raise UnknownToolError(f"unknown tool operation: {name}.{operation}")
+        if not isinstance(tool_input, definition.input_model):
+            raise InvalidToolInputError("validated input does not match the tool contract")
         result = definition.handler(context, tool_input)
-        try:
-            return definition.output_model.model_validate(result)
-        except ValidationError as error:
-            raise InvalidToolOutputError("tool output did not match its schema") from error
+        return self.validate_output(name, operation, result)

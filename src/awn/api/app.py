@@ -9,6 +9,7 @@ from awn import __version__
 from awn.agent.gateway import ModelGateway, build_model_gateway
 from awn.api.routes import approvals, conversations, health, identity, runs, tasks
 from awn.application.approvals import ApprovalService
+from awn.application.cancellations import CancellationService
 from awn.application.conversations import ConversationService
 from awn.application.execution import ExecutionService
 from awn.application.identity import IdentityService
@@ -20,6 +21,7 @@ from awn.config import Settings, get_settings
 from awn.infrastructure.database import Database
 from awn.infrastructure.filesystem import SafeWorkspaceFiles
 from awn.infrastructure.persistence.approvals import SqlAlchemyApprovalRepository
+from awn.infrastructure.persistence.cancellations import SqlAlchemyCancellationRepository
 from awn.infrastructure.persistence.conversations import SqlAlchemyConversationRepository
 from awn.infrastructure.persistence.identity import SqlAlchemyIdentityRepository
 from awn.infrastructure.persistence.runs import SqlAlchemyRunRepository
@@ -91,7 +93,14 @@ def create_app(
         app.state.tool_registry,
         app.state.policy_engine,
     )
-    tool_call_repository = SqlAlchemyToolCallRepository(resolved_database.session_factory)
+    tool_call_repository = SqlAlchemyToolCallRepository(
+        resolved_database.session_factory,
+        app.state.tool_registry,
+    )
+    app.state.cancellation_service = CancellationService(
+        SqlAlchemyCancellationRepository(resolved_database.session_factory),
+        identity_repository,
+    )
     app.state.execution_service = ExecutionService(
         tool_call_repository,
         identity_repository,

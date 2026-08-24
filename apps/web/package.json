@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3000",
     "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,11 +19,15 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
     "@types/node": "26.2.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.2",
-    "typescript": "5.9.3"
+    "jsdom": "^29.1.1",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.11"
   }
 }

@@ -20,6 +20,13 @@ class TaskRepository(Protocol):
 
     def get(self, owner_id: UUID, workspace_id: UUID, task_id: UUID) -> Task | None: ...
 
+    def get_by_source_tool_call(
+        self,
+        owner_id: UUID,
+        workspace_id: UUID,
+        source_tool_call_id: UUID,
+    ) -> Task | None: ...
+
     def list(self, owner_id: UUID, workspace_id: UUID) -> Iterable[Task] | None: ...
 
     def replace(self, owner_id: UUID, task: Task) -> Task | None: ...
@@ -71,6 +78,20 @@ class TaskService:
         if owner_id is None:
             return None
         return self._repository.get(owner_id, workspace_id, task_id)
+
+    def get_by_source_tool_call(
+        self,
+        workspace_id: UUID,
+        source_tool_call_id: UUID,
+    ) -> Task | None:
+        owner_id = self._owner_id()
+        if owner_id is None:
+            return None
+        return self._repository.get_by_source_tool_call(
+            owner_id,
+            workspace_id,
+            source_tool_call_id,
+        )
 
     def list(self, workspace_id: UUID) -> list[Task] | None:
         owner_id = self._owner_id()

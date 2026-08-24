@@ -2,10 +2,12 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel
 
+from awn.domain.cancellations import CancellationEvidenceCode
 from awn.policy.engine import RiskLevel
 
 
@@ -18,6 +20,19 @@ class ToolContext:
     trace_id: UUID
     tool_call_id: UUID
     idempotency_key: str
+
+
+class EffectVerificationStatus(StrEnum):
+    VERIFIED_NO_EFFECT = "verified_no_effect"
+    EFFECT_PRESENT = "effect_present"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class EffectVerification:
+    status: EffectVerificationStatus
+    evidence_code: CancellationEvidenceCode
+    output: BaseModel | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +50,7 @@ class ToolDefinition[ToolInput: BaseModel, ToolOutput: BaseModel]:
     timeout_seconds: int
     supports_idempotency: bool
     handler: Callable[[ToolContext, ToolInput], ToolOutput]
+    effect_verifier: Callable[[ToolContext, ToolInput], EffectVerification] | None = None
 
     @property
     def identifier(self) -> str:

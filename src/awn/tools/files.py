@@ -34,4 +34,9 @@ def build_file_create_tool(
         timeout_seconds=10,
         supports_idempotency=True,
         handler=create_file,
+        effect_verifier=lambda context, command: files.verify_create_effect(
+            context.workspace_id,
+            command,
+            tool_call_id=context.tool_call_id,
+        ),
     )

@@ -15,6 +15,7 @@ class ToolCallStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    OUTCOME_UNKNOWN = "outcome_unknown"
 
 
 def _require_aware(value: datetime | None) -> datetime | None:
@@ -42,6 +43,7 @@ class ToolCall(BaseModel):
     available_at: datetime
     lease_expires_at: datetime | None = None
     started_at: datetime | None = None
+    effect_committed_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -51,6 +53,7 @@ class ToolCall(BaseModel):
         "completed_at",
         "available_at",
         "lease_expires_at",
+        "effect_committed_at",
         "created_at",
         "updated_at",
     )(_require_aware)

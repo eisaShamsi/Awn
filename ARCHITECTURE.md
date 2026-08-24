@@ -162,6 +162,8 @@ supports_idempotency: true
 
 يستخدم التنفيذ الحالي جدول `tool_calls` طابورًا في PostgreSQL. تدرج الموافقة العمل بحالة `pending`، ثم يحجزه العامل بواسطة `lease_owner` و`lease_expires_at` في معاملة قصيرة. يستعيد عامل آخر الحجز المنتهي، ولا يحفظ العامل النتيجة إن لم يعد مالك الحجز. تعاد الأخطاء المؤقتة حتى ثلاث محاولات افتراضيًا بتراجع زمني، وفق [ADR-010](docs/adr/ADR-010-leased-worker-retries.md).
 
+يمثل الإلغاء بأمر دائم مستقل في `run_cancellations` وأحداث منقحة ومتسلسلة في `run_cancellation_events`. يثبت العامل `effect_committed_at` ورمزًا داخليًا وهوية عامل الالتزام بعد حيازة قفل التشغيل وقبل استدعاء الأداة؛ فإذا سبق أمر الإلغاء هذا الحد مُنع الأثر، وإذا سبقه الحد بقيت النتيجة `cancellation_requested` أو `cancellation_uncertain` حتى يصل دليل. لا يطالب العامل بعمل ملغى ولا يعيد محاولته. تولّد أوقات رصد النتيجة داخل معاملة المستودع بعد الأقفال وبحد سببي لا يسبق أمر الإلغاء، مع حفظ وقت وقوع الدليل منفصلًا. تفحص دورة العامل الحجوزات المنتهية قراءةً فقط، وتقبل الأثر الموجود بعد التحقق من مخطط الناتج والمفتاح والمدخل والرمز وهوية العامل، من دون تشغيل `handler` جديد. لا يعد غياب المورد اللحظي دليل «لا أثر»؛ ولا يسمح بهذا الحكم إلا دليل أداة حصري ودائم. تحفظ أداة الملفات إيصال أثر داخليًا لا يزول بحذف الملف الهدف، وفق [ADR-013](docs/adr/ADR-013-durable-run-cancellation.md).
+
 أول حدود التخزين هي `files.create`: مسار نسبي داخل مجلد UUID مستقل لكل مساحة عمل، بلا استبدال لملف مختلف وبلا إظهار للمسار المطلق، وفق [ADR-011](docs/adr/ADR-011-safe-workspace-files.md).
 
 ### 4.10 خدمة الذاكرة
@@ -202,6 +204,19 @@ stateDiagram-v2
     PolicyCheck --> Executing
     AwaitingApproval --> Executing: approved
     AwaitingApproval --> Cancelled: rejected/expired
+    Executing --> CancellationRequested: cancellation accepted after effect gate
+    Executing --> Cancelled: cancellation accepted before effect gate
+    CancellationRequested --> CancellationUncertain: lease expired without evidence
+    CancellationRequested --> Succeeded: full effect verified
+    CancellationRequested --> PartiallySucceeded: partial effect verified
+    CancellationRequested --> Cancelled: no effect verified
+    CancellationUncertain --> Succeeded: late verified evidence
+    CancellationUncertain --> PartiallySucceeded: late verified evidence
+    CancellationUncertain --> Cancelled: no effect verified
+    Succeeded --> CancellationUncertain: verified evidence conflict
+    PartiallySucceeded --> CancellationUncertain: verified evidence conflict
+    Failed --> CancellationUncertain: verified evidence conflict
+    Cancelled --> CancellationUncertain: verified evidence conflict
     Executing --> Verifying
     Executing --> Failed
     Verifying --> Succeeded
@@ -239,6 +254,8 @@ stateDiagram-v2
 | `plan_steps` | خطوات التشغيل | `id`, `run_id`, `position`, `status` |
 | `approvals` | موافقات محددة ومؤقتة | `id`, `action_hash`, `expires_at`, `decision` |
 | `tool_calls` | مدخلات الأدوات ونتائجها المنقحة | `id`, `run_id`, `tool`, `operation`, `status` |
+| `run_cancellations` | أمر الإلغاء الدائم وحقيقته الحالية | `id`, `run_id`, `requested_by`, `status`, `received_at`, `requested_at` |
+| `run_cancellation_events` | دليل الإلغاء التراكمي والمنقح والمرتّب | `id`, `cancellation_id`, `sequence_no`, `event_type`, `source_type`, `evidence_code`, `observed_at` |
 | `memories` | ذاكرة معتمدة | `id`, `scope`, `source_id`, `confidence` |
 | `artifacts` | ملفات ومخرجات العمل | `id`, `run_id`, `uri`, `content_hash` |
 | `audit_events` | سجل تدقيق تراكمي | `id`, `event_type`, `actor`, `occurred_at` |
@@ -364,6 +381,7 @@ Awn/
 10. `ADR-010`: عامل ذو حجز مؤقت وإعادة محاولة محدودة.
 11. `ADR-011`: حدود آمنة لملفات مساحة العمل.
 12. `ADR-012`: بوابة مفهوم الوظيفة ومجلس التدقيق.
+13. `ADR-013`: أمر إلغاء دائم وحد الالتزام بالأثر والمصالحة غير المؤثرة.
 
 ## 14. شروط مراجعة البنية
 

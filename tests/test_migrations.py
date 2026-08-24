@@ -21,6 +21,8 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
         "messages",
         "plan_steps",
         "runs",
+        "run_cancellations",
+        "run_cancellation_events",
         "tasks",
         "tool_calls",
         "users",
@@ -37,6 +39,30 @@ def test_initial_migration_upgrades_and_downgrades(tmp_path) -> None:
     }
     assert {"ix_tool_calls_queue", "ix_tool_calls_run_status"} == {
         index["name"] for index in inspector.get_indexes("tool_calls")
+    }
+    assert {
+        "effect_committed_at",
+        "effect_commit_token",
+        "effect_commit_worker_id",
+    }.issubset(
+        {column["name"] for column in inspector.get_columns("tool_calls")}
+    )
+    assert {"ix_run_cancellations_status"} == {
+        index["name"] for index in inspector.get_indexes("run_cancellations")
+    }
+    assert {"ix_run_cancellation_events_cancellation"} == {
+        index["name"] for index in inspector.get_indexes("run_cancellation_events")
+    }
+    assert "sequence_no" in {
+        column["name"] for column in inspector.get_columns("run_cancellation_events")
+    }
+    assert "uq_run_cancellation_events_sequence" in {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("run_cancellation_events")
+    }
+    assert "ck_run_cancellation_events_evidence_code" in {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints("run_cancellation_events")
     }
 
     command.downgrade(config, "base")

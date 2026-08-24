@@ -2,13 +2,15 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from awn.api.dependencies import (
+    CancellationServiceDependency,
     ExecutionServiceDependency,
     OrchestratorServiceDependency,
     RunServiceDependency,
 )
+from awn.domain.cancellations import CancellationRequestResult, RunCancellation
 from awn.domain.runs import PlanStep, Run, RunCreate
 from awn.domain.tool_calls import ToolCall
 
@@ -94,3 +96,38 @@ def list_tool_calls(
     if calls is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return calls
+
+
+@router.post("/{run_id}/cancellation", response_model=CancellationRequestResult)
+async def request_cancellation(
+    workspace_id: UUID,
+    conversation_id: UUID,
+    run_id: UUID,
+    request: Request,
+    service: CancellationServiceDependency,
+) -> CancellationRequestResult:
+    if await request.body():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Cancellation accepts no request content",
+        )
+    result = service.request(workspace_id, conversation_id, run_id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return result
+
+
+@router.get("/{run_id}/cancellation", response_model=RunCancellation)
+def get_cancellation(
+    workspace_id: UUID,
+    conversation_id: UUID,
+    run_id: UUID,
+    service: CancellationServiceDependency,
+) -> RunCancellation:
+    cancellation = service.get(workspace_id, conversation_id, run_id)
+    if cancellation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cancellation not found",
+        )
+    return cancellation

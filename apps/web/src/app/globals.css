@@ -203,7 +203,13 @@ button { cursor: pointer; }
 }
 .new-conversation input:focus { border-color: var(--green); background: #fff; }
 .new-conversation button { position: absolute; left: 5px; top: 5px; width: 31px; height: 31px; border: 0; border-radius: 8px; background: var(--green); color: #fff; }
-.conversation-list { display: grid; gap: 5px; max-height: 475px; overflow-y: auto; }
+.conversation-list {
+  display: grid;
+  gap: 5px;
+  max-height: 475px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
 .conversation-row {
   width: 100%;
   padding: 11px 10px;
@@ -229,8 +235,126 @@ button { cursor: pointer; }
 .chat-panel { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .chat-heading { min-height: 80px; padding: 17px 22px; border-bottom: 1px solid var(--line); }
 .run-badge { padding: 7px 10px; border-radius: 99px; color: var(--green); background: var(--green-soft); font-size: 11px; font-weight: 700; }
-.status-failed, .status-denied, .status-cancelled { color: var(--danger); background: #f8e8e7; }
+.status-failed, .status-denied { color: var(--danger); background: #f8e8e7; }
+.status-cancelled { color: var(--green); background: var(--green-soft); }
+.status-partially_succeeded { color: #77570a; background: #f5e8bf; }
 .status-awaiting_approval { color: #875e24; background: var(--sand-soft); }
+.status-cancellation_requested { color: #875e24; background: var(--sand-soft); }
+.status-cancellation_uncertain { color: var(--danger); background: #fff0e8; }
+
+.active-runs-panel {
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfa;
+}
+.active-runs-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.active-runs-panel h3 { margin: 3px 0 0; font-size: 12px; }
+.run-list { display: grid; gap: 8px; margin-top: 12px; }
+.run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.run-row.selected { border-color: #9fbfaa; box-shadow: inset -3px 0 0 var(--green); }
+.run-select {
+  min-width: 0;
+  border: 0;
+  padding: 4px 6px;
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  background: transparent;
+  text-align: right;
+}
+.run-select:focus-visible, .cancel-run-button:focus-visible, .cancellation-card:focus-visible {
+  outline: 3px solid rgba(29,90,69,.24);
+  outline-offset: 2px;
+}
+.run-identity strong, .run-identity small { display: block; }
+.run-identity strong { font-size: 11px; }
+.run-identity small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.run-cancellation-state {
+  grid-column: 1 / -1;
+  color: #77570a;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.cancel-run-button {
+  border: 1px solid #c98984;
+  border-radius: 9px;
+  padding: 9px 11px;
+  color: #8e2e27;
+  background: #fff8f7;
+  font-size: 10px;
+  font-weight: 800;
+}
+.cancel-run-button:disabled { cursor: wait; opacity: .65; }
+.run-cancellation-notice {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #704b15;
+  background: var(--sand-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cancellation-card {
+  margin: 14px 20px 0;
+  padding: 17px;
+  border: 1px solid #ddc999;
+  border-radius: 15px;
+  background: #fffaf0;
+  overflow-wrap: anywhere;
+}
+.cancellation-card > header { display: flex; align-items: center; gap: 12px; }
+.cancellation-card h3 { margin: 4px 0 0; font-size: 14px; }
+.cancellation-card > p { margin: 13px 0 10px; color: var(--ink); font-size: 11px; line-height: 1.7; }
+.cancellation-icon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #77570a;
+  background: #f5e8bf;
+  font-size: 17px;
+  font-weight: 800;
+}
+.cancellation-cancelled { border-color: #b8d6c2; background: #f2faf5; }
+.cancellation-cancelled .cancellation-icon { color: var(--green); background: var(--green-soft); }
+.cancellation-partially_succeeded, .cancellation-uncertain, .cancellation-conflict { border-color: #dfb285; background: #fff7ed; }
+.cancellation-completed { border-color: #b9ced8; background: #f3f8fa; }
+.cancellation-execution_failed { border-color: #e4c2c0; background: #fff5f4; }
+.cancellation-next { display: grid; gap: 4px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.75); }
+.cancellation-next strong { color: var(--green-deep); font-size: 11px; }
+.cancellation-next span { font-size: 12px; line-height: 1.6; }
+.cancellation-timeline { display: grid; gap: 7px; padding: 0; margin: 13px 0 0; list-style: none; }
+.cancellation-timeline li { display: flex; align-items: center; gap: 9px; font-size: 11px; }
+.cancellation-timeline li > span { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 7px; background: rgba(255,255,255,.78); }
+.cancellation-timeline strong, .cancellation-timeline time { display: block; }
+.cancellation-timeline time { margin-top: 2px; color: var(--muted); direction: ltr; text-align: right; }
+.cancellation-evidence { margin-top: 12px; border-top: 1px solid rgba(119,87,10,.14); padding-top: 10px; }
+.cancellation-evidence summary { color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
+.cancellation-evidence ul { display: grid; gap: 6px; padding: 0; margin: 9px 0 0; list-style: none; }
+.cancellation-evidence li { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
+.cancellation-evidence bdi { font-family: Consolas, monospace; }
+.cancellation-evidence time { color: var(--muted); direction: ltr; }
+.cancellation-conflict-evidence { display: grid; gap: 8px; margin: 12px 0 0; }
+.cancellation-conflict-evidence > div { display: grid; gap: 4px; padding: 9px 10px; border-radius: 9px; background: rgba(255,255,255,.78); }
+.cancellation-conflict-evidence dt { color: #704b15; font-size: 11px; font-weight: 700; }
+.cancellation-conflict-evidence dd { display: grid; gap: 4px; min-width: 0; margin: 0; font-size: 11px; }
+.cancellation-conflict-evidence bdi { overflow-wrap: anywhere; font-family: Consolas, monospace; }
+.cancellation-conflict-evidence time { color: var(--muted); direction: ltr; text-align: right; }
 .messages { flex: 1; min-height: 360px; max-height: 455px; padding: 22px; overflow-y: auto; background: linear-gradient(180deg, #fff, #fbfcfa); }
 .message { display: flex; gap: 10px; margin-bottom: 20px; }
 .message-avatar { flex: 0 0 auto; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: var(--green); color: #fff; font-size: 11px; font-weight: 800; }
@@ -284,6 +408,8 @@ button { cursor: pointer; }
 .tool-call-card p { margin: 12px 0 8px; color: var(--muted); font-size: 10px; }
 .tool-call-card > code { display: block; overflow-wrap: anywhere; color: var(--green); font-family: Consolas, monospace; font-size: 8px; }
 .tool-failed { border-color: #e4c2c0; background: #fff5f4; }
+.tool-cancelled { border-color: #b8d6c2; background: #f2faf5; }
+.tool-outcome_unknown { border-color: #dfb285; background: #fff7ed; }
 
 .chat-empty { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--muted); }
 .chat-empty.full { flex: 1; min-height: 580px; }
@@ -374,6 +500,12 @@ button { cursor: pointer; }
   .chat-panel { min-height: 590px; }
   .message-body { max-width: 86%; }
   .plan-card, .approval-card, .tool-call-card { margin-inline: 0; }
+  .active-runs-panel { padding-inline: 14px; }
+  .run-row { grid-template-columns: 1fr; }
+  .run-select { grid-template-columns: 1fr auto; }
+  .cancel-run-button { width: 100%; }
+  .cancellation-card { margin-inline: 14px; }
+  .cancellation-evidence li { align-items: flex-start; flex-direction: column; }
   .composer-footer { align-items: stretch; flex-direction: column; }
   .autonomy-picker { align-items: stretch; flex-direction: column; }
   .autonomy-picker select { width: 100%; max-width: none; }

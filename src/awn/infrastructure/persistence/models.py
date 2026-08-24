@@ -158,7 +158,8 @@ class RunRecord(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('received', 'planning', 'needs_clarification', 'ready', "
-            "'awaiting_approval', 'executing', 'verifying', 'succeeded', "
+            "'awaiting_approval', 'executing', 'cancellation_requested', "
+            "'cancellation_uncertain', 'verifying', 'succeeded', "
             "'partially_succeeded', 'failed', 'denied', 'cancelled')",
             name="ck_runs_status",
         ),
@@ -245,6 +246,12 @@ class RunRecord(Base):
         passive_deletes=True,
         order_by="ToolCallRecord.created_at",
     )
+    cancellation: Mapped["RunCancellationRecord | None"] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
 
 
 class PlanStepRecord(Base):
@@ -255,7 +262,8 @@ class PlanStepRecord(Base):
             name="ck_plan_steps_position",
         ),
         CheckConstraint(
-            "status IN ('pending', 'in_progress', 'succeeded', 'failed', 'skipped', 'cancelled')",
+            "status IN ('pending', 'in_progress', 'succeeded', 'failed', 'skipped', "
+            "'cancelled', 'outcome_unknown')",
             name="ck_plan_steps_status",
         ),
         CheckConstraint(
@@ -344,7 +352,8 @@ class ToolCallRecord(Base):
     __tablename__ = "tool_calls"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'executing', 'succeeded', 'failed', 'cancelled')",
+            "status IN ('pending', 'executing', 'succeeded', 'failed', 'cancelled', "
+            "'outcome_unknown')",
             name="ck_tool_calls_status",
         ),
         CheckConstraint(
@@ -358,6 +367,13 @@ class ToolCallRecord(Base):
         CheckConstraint(
             "attempt_count >= 0 AND max_attempts >= 1 AND attempt_count <= max_attempts",
             name="ck_tool_calls_attempts",
+        ),
+        CheckConstraint(
+            "(effect_committed_at IS NULL AND effect_commit_token IS NULL AND "
+            "effect_commit_worker_id IS NULL) OR "
+            "(effect_committed_at IS NOT NULL AND effect_commit_token IS NOT NULL AND "
+            "effect_commit_worker_id IS NOT NULL)",
+            name="ck_tool_calls_effect_commit",
         ),
     )
 
@@ -398,6 +414,18 @@ class ToolCallRecord(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    effect_committed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    effect_commit_token: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        nullable=True,
+    )
+    effect_commit_worker_id: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -410,6 +438,125 @@ class ToolCallRecord(Base):
     created_task: Mapped["TaskRecord | None"] = relationship(
         back_populates="source_tool_call",
         uselist=False,
+    )
+    cancellation_events: Mapped[list["RunCancellationEventRecord"]] = relationship(
+        back_populates="tool_call",
+        passive_deletes=True,
+    )
+
+
+class RunCancellationRecord(Base):
+    __tablename__ = "run_cancellations"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('accepted', 'uncertain', 'cancelled', 'partially_succeeded', "
+            "'completed', 'execution_failed')",
+            name="ck_run_cancellations_status",
+        ),
+        UniqueConstraint("run_id", name="uq_run_cancellations_run_id"),
+        Index("ix_run_cancellations_status", "status", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    requested_by: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    run: Mapped[RunRecord] = relationship(back_populates="cancellation")
+    events: Mapped[list["RunCancellationEventRecord"]] = relationship(
+        back_populates="cancellation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="RunCancellationEventRecord.sequence_no",
+    )
+
+
+class RunCancellationEventRecord(Base):
+    __tablename__ = "run_cancellation_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('request_accepted', 'call_cancelled_before_effect', "
+            "'effect_committed', 'cancelled_no_effect', 'partial_effect', "
+            "'effect_completed', 'outcome_unknown', 'execution_failed', "
+            "'late_effect_evidence', 'evidence_conflict')",
+            name="ck_run_cancellation_events_type",
+        ),
+        CheckConstraint(
+            "source_type IN ('owner_action', 'cancellation_api', 'current_worker', "
+            "'reconciliation_worker', 'database_verification')",
+            name="ck_run_cancellation_events_source",
+        ),
+        CheckConstraint(
+            "evidence_code IN ("
+            "'OWNER_REQUEST_COMMITTED', 'CANCEL_WON_EFFECT_RACE', "
+            "'EFFECT_COMMIT_WON_CANCELLATION_RACE', "
+            "'EFFECT_COMMITTED_BEFORE_CANCELLATION', "
+            "'CANCELLATION_OBSERVED_AT_EFFECT_GATE', 'VALIDATED_TOOL_OUTPUT', "
+            "'LEASE_EXPIRED_AFTER_EFFECT_COMMIT', "
+            "'HANDLER_FAILURE_AFTER_CANCELLATION', 'NO_EFFECT_VERIFIED', "
+            "'PARTIAL_EFFECT_VERIFIED', 'FULL_EFFECT_VERIFIED', "
+            "'EXECUTION_FAILED_NO_EFFECT_VERIFIED', "
+            "'CANCELLATION_OUTCOME_UNKNOWN', 'CONFLICTING_SUCCESS_EVIDENCE', "
+            "'SUCCESS_CONFLICTS_WITH_FINAL_NO_EFFECT', "
+            "'NO_EFFECT_CONFLICTS_WITH_SUCCESS', "
+            "'EVIDENCE_ADDED_TO_OPEN_CONFLICT', 'TASK_NOT_FOUND_BY_SOURCE_CALL', "
+            "'FILE_NOT_FOUND_AT_SAFE_PATH')",
+            name="ck_run_cancellation_events_evidence_code",
+        ),
+        UniqueConstraint(
+            "cancellation_id",
+            "sequence_no",
+            name="uq_run_cancellation_events_sequence",
+        ),
+        Index("ix_run_cancellation_events_cancellation", "cancellation_id", "sequence_no"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    cancellation_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("run_cancellations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    tool_call_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("tool_calls.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    evidence_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    related_evidence_fingerprint: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    superseded_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    cancellation: Mapped[RunCancellationRecord] = relationship(back_populates="events")
+    tool_call: Mapped[ToolCallRecord | None] = relationship(
+        back_populates="cancellation_events",
     )
 
 
